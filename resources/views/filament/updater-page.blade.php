@@ -45,7 +45,7 @@
         x-init="if (busy) setTimeout(() => poll(), 3000)"
         {{-- A new key when "busy" changes makes Livewire replace the element, so Alpine starts polling after an action. --}}
         wire:key="updater-progress-{{ $busy ? 'busy' : 'idle' }}"
-        style="display: grid; gap: 1.5rem;"
+        style="display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.5rem;"
     >
         <div x-show="busy" x-cloak role="status" aria-live="polite" style="display: flex; gap: .75rem; align-items: center;">
             <x-filament::loading-indicator style="width: 1.25rem; height: 1.25rem;" />
@@ -155,7 +155,7 @@
 
         <div x-show="log.length > 0" @if ($status['log'] === []) x-cloak @endif>
             <x-filament::section :heading="__('updater::updater.log')" collapsible>
-                <pre tabindex="0" x-text="log.join('\n')" style="max-height: 28rem; overflow: auto; font-size: .75rem; line-height: 1.5; white-space: pre-wrap;">{{ implode("\n", $status['log']) }}</pre>
+                <pre tabindex="0" x-text="log.join('\n')" style="max-height: 28rem; overflow: auto; font-size: .75rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;">{{ implode("\n", $status['log']) }}</pre>
             </x-filament::section>
         </div>
     </div>

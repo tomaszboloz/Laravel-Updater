@@ -39,6 +39,9 @@ final class StatusTest extends TestCase
         $status->queue('composer: *');
         $this->assertTrue($status->isBusy(), 'A queued task blocks until its process starts.');
 
+        $status->append("\e[32;1mDONE\e[39;22m \e[90m.\e[39m");
+        $this->assertSame('DONE .', end($status->get()['log']), 'ANSI colour codes are removed.');
+
         $status->finish(Status::SUCCEEDED);
         $this->assertFalse($status->isBusy());
         $this->assertNull($status->get()['step']);

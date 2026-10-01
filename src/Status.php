@@ -80,6 +80,9 @@ final readonly class Status
 
     public function append(string $output): void
     {
+        // Colour codes from Composer and Artisan (e.g. "package:discover --ansi") would show up as garbage.
+        $output = (string) preg_replace('/\e\[[0-9;?]*[A-Za-z]|\e\][^\a]*\a/', '', $output);
+
         if (trim($output) !== '') {
             $this->write(['log' => $this->lines($output)]);
         }
