@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/tomaszboloz/Laravel-Updater)](https://github.com/tomaszboloz/Laravel-Updater/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
-![Laravel Updater: the Updates page in the Filament admin panel](art/cover.jpg)
+<img class="filament-hidden" src="art/cover.jpg" alt="Laravel Updater: the Updates page in the Filament admin panel">
 
 Laravel Updater keeps a Laravel application up to date from the **Filament admin panel** or Artisan:
 
