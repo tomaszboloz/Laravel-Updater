@@ -1,0 +1,84 @@
+{
+    "name": "tomaszboloz/laravel-updater",
+    "description": "Self-update Laravel applications from GitHub releases (public and private repositories): code, Composer, migrations, npm build and cache clearing - from the Filament admin panel or Artisan.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "laravel",
+        "updater",
+        "self-update",
+        "auto-update",
+        "github",
+        "github-releases",
+        "deployment",
+        "filament",
+        "filament-plugin",
+        "migrations"
+    ],
+    "homepage": "https://github.com/tomaszboloz/Laravel-Updater",
+    "support": {
+        "issues": "https://github.com/tomaszboloz/Laravel-Updater/issues",
+        "source": "https://github.com/tomaszboloz/Laravel-Updater"
+    },
+    "authors": [
+        {
+            "name": "Tomasz Bołoz",
+            "homepage": "https://www.damtox.pl",
+            "role": "Developer"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "guzzlehttp/guzzle": "^7.8",
+        "illuminate/cache": "^12.0|^13.0",
+        "illuminate/console": "^12.0|^13.0",
+        "illuminate/contracts": "^12.0|^13.0",
+        "illuminate/http": "^12.0|^13.0",
+        "illuminate/process": "^12.0|^13.0",
+        "illuminate/queue": "^12.0|^13.0",
+        "illuminate/support": "^12.0|^13.0",
+        "spatie/laravel-package-tools": "^1.92",
+        "symfony/process": "^7.2|^8.0"
+    },
+    "require-dev": {
+        "filament/filament": "^4.0|^5.0",
+        "larastan/larastan": "^3.4",
+        "laravel/pint": "^1.20",
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpunit/phpunit": "^11.5|^12.0|^13.0"
+    },
+    "suggest": {
+        "ext-zip": "Required by the \"archive\" strategy (hosts without git).",
+        "filament/filament": "Adds the \"Updates\" page to your Filament (v4/v5) admin panel."
+    },
+    "autoload": {
+        "psr-4": {
+            "TomaszBoloz\\LaravelUpdater\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "TomaszBoloz\\LaravelUpdater\\Tests\\": "tests/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "TomaszBoloz\\LaravelUpdater\\UpdaterServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse --memory-limit=1G",
+        "format": "pint"
+    },
+    "config": {
+        "sort-packages": true,
+        "allow-plugins": {
+            "php-http/discovery": false
+        }
+    },
+    "minimum-stability": "stable",
+    "prefer-stable": true
+}
