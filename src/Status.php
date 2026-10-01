@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace TomaszBoloz\LaravelUpdater;
 
-use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Support\Carbon;
+use TomaszBoloz\LaravelUpdater\State\RunLock;
+use TomaszBoloz\LaravelUpdater\State\StateStore;
 
 /**
- * Update progress shared between the queue worker and the admin panel.
+ * Progress of the current or last run, shared by the background process and the admin panel.
+ * Stored in a file, so the "optimize:clear" step of an update cannot wipe it.
  *
  * @phpstan-type State array{state: string, version: string|null, step: string|null, message: string|null, log: list<string>, updated_at: string|null}
  */
@@ -24,18 +26,17 @@ final readonly class Status
 
     public const string FAILED = 'failed';
 
-    private const string KEY = 'updater:status';
+    private const string FILE = 'status';
 
     private const int MAX_LINES = 300;
 
-    /** @param int $staleAfter seconds after which an unfinished run (e.g. a killed worker) no longer blocks new ones */
-    public function __construct(private Cache $cache, private int $staleAfter = 3600) {}
+    /** @param int $queuedFor seconds a queued run may wait for its background process before it stops blocking */
+    public function __construct(private StateStore $state, private RunLock $lock, private int $queuedFor = 600) {}
 
     /** @return State */
     public function get(): array
     {
-        $stored = $this->cache->get(self::KEY);
-        $stored = is_array($stored) ? $stored : [];
+        $stored = $this->state->get(self::FILE);
         $string = static fn (string $key): ?string => is_string($stored[$key] ?? null) ? $stored[$key] : null;
 
         return [
@@ -48,23 +49,28 @@ final readonly class Status
         ];
     }
 
+    /** A run holds the lock, or was just queued and its background process has not started yet. */
     public function isBusy(): bool
     {
+        if ($this->lock->isHeld()) {
+            return true;
+        }
+
         $status = $this->get();
 
-        return in_array($status['state'], [self::QUEUED, self::RUNNING], true)
+        return $status['state'] === self::QUEUED
             && $status['updated_at'] !== null
-            && Carbon::parse($status['updated_at'])->addSeconds($this->staleAfter)->isFuture();
+            && Carbon::parse($status['updated_at'])->addSeconds($this->queuedFor)->isFuture();
     }
 
-    public function queue(string $version): void
+    public function queue(string $target): void
     {
-        $this->write(['state' => self::QUEUED, 'version' => $version, 'step' => null, 'message' => null, 'log' => []]);
+        $this->write(['state' => self::QUEUED, 'version' => $target, 'step' => null, 'message' => null, 'log' => []]);
     }
 
-    public function start(string $version): void
+    public function start(string $target): void
     {
-        $this->write(['state' => self::RUNNING, 'version' => $version, 'step' => null, 'message' => null, 'log' => []]);
+        $this->write(['state' => self::RUNNING, 'version' => $target, 'step' => null, 'message' => null, 'log' => []]);
     }
 
     public function step(string $step): void
@@ -95,6 +101,6 @@ final readonly class Status
     /** @param array<string, mixed> $changes */
     private function write(array $changes): void
     {
-        $this->cache->forever(self::KEY, [...$this->get(), ...$changes, 'updated_at' => Carbon::now()->toIso8601String()]);
+        $this->state->put(self::FILE, [...$this->get(), ...$changes, 'updated_at' => Carbon::now()->toIso8601String()]);
     }
 }

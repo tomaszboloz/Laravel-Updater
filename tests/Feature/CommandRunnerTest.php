@@ -8,6 +8,7 @@ use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Process;
 use TomaszBoloz\LaravelUpdater\CommandRunner;
+use TomaszBoloz\LaravelUpdater\ProcessEnvironment;
 use TomaszBoloz\LaravelUpdater\Tests\Fixtures\InstalledApp;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
 use TomaszBoloz\LaravelUpdater\UpdaterException;
@@ -48,6 +49,17 @@ final class CommandRunnerTest extends TestCase
 
         Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['composer', 'install', '--no-interaction']);
         Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['npm', 'run', 'build', '--no-dev']);
+    }
+
+    public function test_binaries_and_path_are_resolved_for_processes_started_by_a_web_server(): void
+    {
+        ProcessEnvironment::$enabled = true;
+        Process::fake();
+
+        $this->app->make(CommandRunner::class)->run(['@php', '-v']);
+
+        Process::assertRan(fn (PendingProcess $process): bool => str_starts_with($process->command[0], '/')
+            && str_contains((string) $process->environment['PATH'], '/usr/bin'));
     }
 
     public function test_commands_without_placeholders_run_as_given(): void

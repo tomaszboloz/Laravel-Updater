@@ -10,7 +10,49 @@
         $cell = 'padding: .625rem .75rem; text-align: start; vertical-align: middle;';
     @endphp
 
-    <div @if ($busy) wire:poll.5s @endif style="display: grid; gap: 1.5rem;">
+    {{--
+        Progress is polled with plain fetch() from a small JSON endpoint, not with Livewire: while Composer swaps
+        vendor/ or the site is in maintenance mode a request may fail, and a failed poll is simply retried.
+        The page reloads once the background task has finished.
+    --}}
+    <div
+        x-data="{
+            busy: @js($busy),
+            state: @js($status['state']),
+            step: @js($status['step']),
+            log: @js($status['log']),
+            async poll() {
+                try {
+                    const response = await fetch(@js(route('updater.status')), { headers: { Accept: 'application/json' }, credentials: 'same-origin', cache: 'no-store' });
+
+                    if (response.ok) {
+                        const status = await response.json();
+                        this.step = status.step;
+                        this.log = status.log;
+                        this.state = status.state;
+
+                        if (! status.busy) {
+                            window.location.reload();
+
+                            return;
+                        }
+                    }
+                } catch (error) {}
+
+                setTimeout(() => this.poll(), 3000);
+            },
+        }"
+        x-init="if (busy) setTimeout(() => poll(), 3000)"
+        {{-- A new key when "busy" changes makes Livewire replace the element, so Alpine starts polling after an action. --}}
+        wire:key="updater-progress-{{ $busy ? 'busy' : 'idle' }}"
+        style="display: grid; gap: 1.5rem;"
+    >
+        <div x-show="busy" x-cloak role="status" aria-live="polite" style="display: flex; gap: .75rem; align-items: center;">
+            <x-filament::loading-indicator style="width: 1.25rem; height: 1.25rem;" />
+            <span>{{ __('updater::updater.running_in_background') }}</span>
+            <span x-text="step" style="font-family: monospace; font-size: .8125rem;"></span>
+        </div>
+
         <x-filament::section :heading="__('updater::updater.application')">
             @if ($this->updateApplicationAction->isVisible())
                 <x-slot name="afterHeader">{{ $this->updateApplicationAction }}</x-slot>
@@ -111,11 +153,11 @@
             </div>
         </x-filament::section>
 
-        @if ($status['log'] !== [])
+        <div x-show="log.length > 0" @if ($status['log'] === []) x-cloak @endif>
             <x-filament::section :heading="__('updater::updater.log')" collapsible>
-                <pre aria-live="polite" tabindex="0" style="max-height: 28rem; overflow: auto; font-size: .75rem; line-height: 1.5; white-space: pre-wrap;">{{ implode("\n", $status['log']) }}</pre>
+                <pre tabindex="0" x-text="log.join('\n')" style="max-height: 28rem; overflow: auto; font-size: .75rem; line-height: 1.5; white-space: pre-wrap;">{{ implode("\n", $status['log']) }}</pre>
             </x-filament::section>
-        @endif
+        </div>
     </div>
 
     <x-filament-actions::modals />

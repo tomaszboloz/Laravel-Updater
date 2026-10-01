@@ -17,6 +17,7 @@ return [
     'release_notes' => 'Co nowego w :version',
     'open_release' => 'Otwórz wydanie na GitHubie',
     'log' => 'Dziennik aktualizacji',
+    'running_in_background' => 'Trwa w tle. Możesz opuścić tę stronę; panel działa dla Ciebie przez cały czas.',
     'application' => 'Aplikacja',
     'checking' => 'Sprawdzanie aktualizacji. Strona odświeży się automatycznie.',
     'packages' => [

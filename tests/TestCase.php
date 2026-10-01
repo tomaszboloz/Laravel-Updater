@@ -7,6 +7,7 @@ namespace TomaszBoloz\LaravelUpdater\Tests;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Filesystem\Filesystem;
 use Orchestra\Testbench\TestCase as Orchestra;
+use TomaszBoloz\LaravelUpdater\ProcessEnvironment;
 use TomaszBoloz\LaravelUpdater\UpdaterServiceProvider;
 
 abstract class TestCase extends Orchestra
@@ -16,6 +17,8 @@ abstract class TestCase extends Orchestra
     protected function setUp(): void
     {
         parent::setUp();
+
+        ProcessEnvironment::$enabled = false;
 
         // The installed version lives in storage, which testbench shares between tests.
         (new Filesystem)->deleteDirectory(storage_path('app/updater'));

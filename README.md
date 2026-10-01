@@ -74,8 +74,8 @@ and the navigation badge shows the count.
 ## Requirements
 
 - PHP 8.3+, Laravel 12 or 13
-- A queue worker, because updates run in a queued job (web requests would time out)
-- A shared cache store with atomic locks (`file`, `redis`, `database`, `memcached`...)
+- Linux or macOS with `exec` allowed for PHP (updates run in a detached background process), **or** a queue worker
+  with `UPDATER_RUNNER=queue`
 - `git` (for the default strategy) or the `zip` extension (for the `archive` strategy)
 - Filament 4 or 5, only if you want the admin page
 - Releases in your app's repository tagged with semantic versions: `v1.4.0` or `1.4.0`
@@ -160,16 +160,29 @@ The plugin follows the Filament 5 plugin conventions: `make()` resolves it from 
 returns the instance registered on the current panel, and the service provider extends Spatie's
 `PackageServiceProvider`.
 
-### Queue worker
+### Everything runs in the background
 
-The **Update now** button dispatches the `RunUpdate` job. Keep a worker running, for example under
-Supervisor, with a timeout longer than your slowest update:
+Buttons in the panel never run Composer, npm or migrations inside the web request. They start a task and return:
 
-```bash
-php artisan queue:work --timeout=3600
-```
+- **`process` runner (default):** a detached `php artisan updater:work` process (`nohup … &`), so no queue worker is
+  needed and nothing is killed when the request ends. Output goes to `storage/logs/updater.log`.
+- **`queue` runner** (`UPDATER_RUNNER=queue`, and always on Windows): a `RunTask` job; keep a worker running with a
+  timeout longer than your slowest update, e.g. `php artisan queue:work --timeout=3600`.
 
-Choose a dedicated connection or queue with `UPDATER_QUEUE_CONNECTION` and `UPDATER_QUEUE`.
+What keeps the site and the panel working while an update runs:
+
+- **Progress without Livewire.** The page polls a small JSON endpoint (`/updater/status`) with `fetch()`. While
+  Composer swaps `vendor/` a request may fail; the browser just retries, and reloads the page when the task ends.
+- **The admin stays online.** The admin who starts an update receives Laravel's maintenance bypass cookie, so the
+  panel keeps working while visitors see the maintenance page. A bypass secret is generated when none is set.
+- **State outside the cache.** Progress, check results and the lock live in `storage/app/updater`, so the
+  `optimize:clear` step cannot wipe them. The lock is an `flock()`, released by the OS if a process is killed.
+- **Fresh code after Composer.** Classes needed after Composer ran are loaded up front, and the follow-up check runs
+  in a new process that boots the updated `vendor/`.
+- **Web-server environments.** PHP-FPM, Herd or Valet start processes without your shell's `PATH`; Composer, npm
+  and node are looked up in the usual places (Homebrew, `/usr/local/bin`, Composer global, Herd, nvm, Volta).
+- **Development machines.** When the app was installed with dev packages, `--no-dev` is dropped and commands that
+  cache config, routes or views are skipped, so local tools and `.env` changes keep working.
 
 ## Artisan
 
@@ -177,10 +190,10 @@ Choose a dedicated connection or queue with `UPDATER_QUEUE_CONNECTION` and `UPDA
 php artisan updater:check          # application release and every package
 php artisan updater:packages       # update all packages (asks for confirmation in production)
 php artisan updater:packages acme/plugin --force   # update one package
-php artisan updater:packages --queue               # hand it to the queue worker
+php artisan updater:packages --background          # start it in the background and return
 php artisan updater:run            # update now (asks for confirmation in production)
 php artisan updater:run --force    # no confirmation, e.g. from the scheduler or CI
-php artisan updater:run --queue    # hand the update to the queue worker
+php artisan updater:run --background   # start it in the background and return
 ```
 
 To update automatically every night:
@@ -213,8 +226,10 @@ Options marked **panel** are edited in **Updates → Settings**; config and `.en
 | `steps` | see below | Commands run after the new code is in place |
 | `recovery_steps` | `composer install`, `optimize:clear` | Commands run after a rollback |
 | `preserve` | `.env`, `storage`, `vendor`... | Paths the `archive` strategy never overwrites |
-| `queue` | default connection | `connection`, `name` and `timeout` of the update job |
-| `cache_store` | default store | Store shared by web and workers, used for the lock and the status |
+| `runner` | `process` | `process` (detached `updater:work`) or `queue` (`RunTask` job) |
+| `route_prefix` | `updater` | Prefix of the progress endpoint polled by the page |
+| `queue` | default connection | `connection`, `name` and `timeout` of the `RunTask` job |
+| `cache_store` | default store | Cache for GitHub API answers |
 
 Steps are arrays of arguments and are never passed through a shell:
 
@@ -274,7 +289,9 @@ Listen to them to send notifications, for example to Slack or e-mail.
 - **Archives:** entries with `..`, absolute paths, backslashes or drive letters abort the update before
   anything is copied (zip slip). Symlinks are not copied, and `.env`, `storage` and `vendor` are never overwritten.
 - **Release notes:** Markdown is rendered with raw HTML escaped and unsafe links removed.
-- **One update at a time:** an atomic cache lock plus a unique queued job, with `tries = 1`.
+- **One update at a time:** an `flock()` held by the running process (never stale), plus unique jobs with `tries = 1`.
+- **Background tasks:** task names and package names are validated before a process starts; arguments are
+  shell-escaped. The progress endpoint requires login and the `updater.manage` gate.
 - **Local changes:** the `git` strategy refuses to overwrite changed tracked files.
 
 Migrations are not rolled back automatically. Write backward-compatible migrations and back up the database,

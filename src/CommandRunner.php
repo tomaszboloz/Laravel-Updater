@@ -12,13 +12,16 @@ use Symfony\Component\Process\PhpExecutableFinder;
 /** Runs update steps as separate processes (never through a shell) and keeps secrets out of their output. */
 final readonly class CommandRunner
 {
+    private const array CACHING_COMMANDS = ['optimize', 'config:cache', 'route:cache', 'view:cache', 'event:cache', 'filament:optimize'];
+
     /**
      * @param  array<string, string|null>  $binaries  "@name" placeholder => binary, e.g. "composer" or "php8.3 /usr/bin/composer"
      * @param  array<string, string|null>  $environment
      * @param  list<string>  $secrets
      * @param  array<string, string>  $credentials  environment added only for "@git" and "@composer" commands
-     * @param  bool  $keepDevPackages  drops "--no-dev" from Composer commands, so an install with dev packages
-     *                                 (a development machine) keeps them instead of losing tools like Pint or PHPUnit
+     * @param  bool  $developmentInstall  the app was installed with require-dev packages (a development machine):
+     *                                    "--no-dev" is dropped so tools like Pint or PHPUnit stay, and commands that
+     *                                    cache config/routes/views are skipped so .env changes keep working
      */
     public function __construct(
         private Process $process,
@@ -28,7 +31,7 @@ final readonly class CommandRunner
         private int $timeout = 900,
         #[SensitiveParameter] private array $secrets = [],
         #[SensitiveParameter] private array $credentials = [],
-        private bool $keepDevPackages = false,
+        private bool $developmentInstall = false,
     ) {}
 
     /**
@@ -38,12 +41,20 @@ final readonly class CommandRunner
      */
     public function run(array $command, array $environment = [], ?Closure $onOutput = null): string
     {
+        if ($this->developmentInstall && ($command[0] ?? '') === '@php' && ($command[1] ?? '') === 'artisan'
+            && in_array($command[2] ?? '', self::CACHING_COMMANDS, true)) {
+            $onOutput?->__invoke('skipped on a development install');
+
+            return '';
+        }
+
         $listener = $onOutput === null ? null : fn (string $type, string $buffer) => $onOutput($this->redact($buffer));
 
         $result = $this->process->newPendingProcess()
             ->path($this->basePath)
             ->timeout($this->timeout)
             ->env([
+                ...ProcessEnvironment::variables(),
                 ...array_filter($this->environment, static fn (?string $value): bool => $value !== null && $value !== ''),
                 ...(in_array($command[0] ?? '', ['@git', '@composer'], true) ? $this->credentials : []),
                 ...$environment,
@@ -64,6 +75,7 @@ final readonly class CommandRunner
     /** @param list<string> $command */
     public function describe(array $command): string
     {
+        $command = $this->effective($command);
         $command[0] = ltrim($command[0] ?? '', '@');
 
         return $this->redact(implode(' ', $command));
@@ -74,6 +86,21 @@ final readonly class CommandRunner
         $secrets = array_filter($this->secrets, static fn (string $secret): bool => $secret !== '');
 
         return $secrets === [] ? $text : str_replace($secrets, '********', $text);
+    }
+
+    /**
+     * The command as it will run: without "--no-dev" for Composer on a development install.
+     *
+     * @param  list<string>  $command
+     * @return list<string>
+     */
+    private function effective(array $command): array
+    {
+        if (($command[0] ?? '') !== '@composer' || ! $this->developmentInstall) {
+            return $command;
+        }
+
+        return array_values(array_filter($command, static fn (string $argument): bool => $argument !== '--no-dev'));
     }
 
     /**
@@ -90,9 +117,7 @@ final readonly class CommandRunner
 
         $name = substr($first, 1);
 
-        if ($name === 'composer' && $this->keepDevPackages) {
-            $command = array_values(array_filter($command, static fn (string $argument): bool => $argument !== '--no-dev'));
-        }
+        $command = $this->effective($command);
         $binary = $this->binaries[$name] ?? null;
 
         if ($name === 'php' && ($binary === null || $binary === '')) {
@@ -103,6 +128,9 @@ final readonly class CommandRunner
             throw UpdaterException::unknownBinary($name);
         }
 
-        return [...(preg_split('/\s+/', trim($binary)) ?: []), ...array_slice($command, 1)];
+        $parts = preg_split('/\s+/', trim($binary)) ?: [];
+        $parts[0] = ProcessEnvironment::find($parts[0]);
+
+        return [...$parts, ...array_slice($command, 1)];
     }
 }

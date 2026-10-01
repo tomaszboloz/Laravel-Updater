@@ -36,6 +36,7 @@ abstract class FilamentTestCase extends TestCase
         parent::defineEnvironment($app);
         $app['config']->set('database.default', 'testing');
         $app['config']->set('auth.providers.users.model', User::class);
+        $app['config']->set('updater.runner', 'queue');
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('k', 32)));
     }
 

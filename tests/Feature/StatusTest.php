@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\File;
 use TomaszBoloz\LaravelUpdater\Release;
+use TomaszBoloz\LaravelUpdater\State\RunLock;
 use TomaszBoloz\LaravelUpdater\Status;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
 use TomaszBoloz\LaravelUpdater\VersionStore;
@@ -28,23 +29,35 @@ final class StatusTest extends TestCase
         $this->assertSame('composer install', $current['step']);
         $this->assertCount(300, $current['log']);
         $this->assertSame('line 400', end($current['log']));
-        $this->assertTrue($status->isBusy());
+        $this->assertFalse($status->isBusy(), 'Without the lock a "running" state is a leftover of a killed process.');
+
+        $lock = new RunLock(storage_path('app/updater/run.lock'));
+        $lock->acquire();
+        $this->assertTrue($status->isBusy(), 'Another process holds the lock.');
+        $lock->release();
+
+        $status->queue('composer: *');
+        $this->assertTrue($status->isBusy(), 'A queued task blocks until its process starts.');
 
         $status->finish(Status::SUCCEEDED);
         $this->assertFalse($status->isBusy());
         $this->assertNull($status->get()['step']);
     }
 
-    public function test_a_run_abandoned_by_a_killed_worker_stops_blocking(): void
+    public function test_a_queued_task_whose_process_never_started_stops_blocking(): void
     {
-        $this->travelTo(now()->subHours(3), fn () => $this->app->make(Status::class)->start('1.2.0'));
+        $this->travelTo(now()->subMinutes(11), fn () => $this->app->make(Status::class)->queue('1.2.0'));
 
         $this->assertFalse($this->app->make(Status::class)->isBusy());
     }
 
-    public function test_corrupted_cache_entries_fall_back_to_idle(): void
+    public function test_status_survives_cache_clearing_and_tolerates_corrupted_files(): void
     {
-        Cache::forever('updater:status', ['state' => ['x'], 'log' => 'nope']);
+        $this->app->make(Status::class)->start('1.2.0');
+        Cache::flush();
+        $this->assertSame(Status::RUNNING, $this->app->make(Status::class)->get()['state']);
+
+        File::put(storage_path('app/updater/status.json'), json_encode(['state' => ['x'], 'log' => 'nope']));
 
         $this->assertSame(Status::IDLE, $this->app->make(Status::class)->get()['state']);
         $this->assertSame([], $this->app->make(Status::class)->get()['log']);

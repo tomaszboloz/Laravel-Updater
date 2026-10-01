@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace TomaszBoloz\LaravelUpdater;
 
 use Illuminate\Config\Repository as Config;
+use TomaszBoloz\LaravelUpdater\State\StateStore;
 
 /** Effective settings: values saved in the admin panel first, then config/updater.php (and .env). */
 final readonly class Settings
 {
-    public function __construct(private SettingsStore $store, private Config $config) {}
+    public function __construct(private SettingsStore $store, private Config $config, private StateStore $state) {}
 
     public function repository(): ?string
     {
@@ -40,8 +41,21 @@ final readonly class Settings
         return [
             'enabled' => is_bool($enabled) ? $enabled : $this->config->boolean('updater.maintenance.enabled', true),
             'retry' => is_int($retry) ? $retry : $this->config->integer('updater.maintenance.retry', 60),
-            'secret' => $this->text('maintenance_secret', 'maintenance.secret'),
+            'secret' => $this->text('maintenance_secret', 'maintenance.secret') ?? $this->generatedSecret(),
         ];
+    }
+
+    /** Bypass secret used when none is configured, so the admin panel keeps working during maintenance mode. */
+    private function generatedSecret(): string
+    {
+        $secret = $this->state->get('maintenance')['secret'] ?? null;
+
+        if (! is_string($secret) || strlen($secret) !== 40) {
+            $secret = bin2hex(random_bytes(20));
+            $this->state->put('maintenance', ['secret' => $secret]);
+        }
+
+        return $secret;
     }
 
     /** @return list<array{name: string, repository: string, token: string|null}> monitored private packages */

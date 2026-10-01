@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace TomaszBoloz\LaravelUpdater;
 
 use Closure;
-use Illuminate\Contracts\Cache\LockProvider;
 use Throwable;
+use TomaszBoloz\LaravelUpdater\State\RunLock;
 
 /** Shared frame of every update: one at a time, status log, maintenance mode, recovery on failure. */
 final readonly class Pipeline
@@ -15,9 +15,8 @@ final readonly class Pipeline
     public function __construct(
         private CommandRunner $runner,
         private Status $status,
-        private LockProvider $locks,
+        private RunLock $lock,
         private array $maintenance,
-        private int $lockSeconds = 3600,
     ) {}
 
     /**
@@ -30,9 +29,7 @@ final readonly class Pipeline
      */
     public function run(string $target, Closure $work, ?Closure $recover = null, ?Closure $prepare = null): mixed
     {
-        $lock = $this->locks->lock('updater:lock', $this->lockSeconds);
-
-        if (! $lock->get()) {
+        if (! $this->lock->acquire()) {
             throw UpdaterException::alreadyRunning();
         }
 
@@ -70,7 +67,7 @@ final readonly class Pipeline
                 $this->attempt(['@php', 'artisan', 'up']);
             }
 
-            $lock->release();
+            $this->lock->release();
         }
     }
 

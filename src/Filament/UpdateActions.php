@@ -6,16 +6,14 @@ namespace TomaszBoloz\LaravelUpdater\Filament;
 
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
-use TomaszBoloz\LaravelUpdater\Jobs\CheckForUpdates;
-use TomaszBoloz\LaravelUpdater\Jobs\UpdatePackages;
+use TomaszBoloz\LaravelUpdater\Background;
 use TomaszBoloz\LaravelUpdater\Packages\Package;
 use TomaszBoloz\LaravelUpdater\Packages\PackageInventory;
-use TomaszBoloz\LaravelUpdater\RunUpdate;
 use TomaszBoloz\LaravelUpdater\Status;
 use TomaszBoloz\LaravelUpdater\UpdateChecker;
 use TomaszBoloz\LaravelUpdater\Updater;
 
-/** Check and update actions of the Updates page. Each one queues a job; the page polls the shared status. */
+/** Check and update actions of the Updates page. Each one starts a background task; the page polls its status. */
 final class UpdateActions
 {
     /** Manual check of the application and every package (the same check also runs on the schedule). */
@@ -26,9 +24,9 @@ final class UpdateActions
             ->icon('heroicon-o-magnifying-glass')
             ->color('gray')
             ->disabled(fn (UpdateChecker $checker): bool => $checker->isChecking())
-            ->action(function (UpdateChecker $checker): void {
+            ->action(function (UpdateChecker $checker, Background $background): void {
                 $checker->markChecking();
-                CheckForUpdates::dispatch();
+                $background->start('check');
 
                 Notification::make()->title(__('updater::updater.checking'))->info()->send();
             });
@@ -43,15 +41,12 @@ final class UpdateActions
             ->visible(fn (Status $status): bool => self::release() !== null && ! $status->isBusy())
             ->requiresConfirmation()
             ->modalDescription(fn (): string => __('updater::updater.confirm', ['version' => self::release()]))
-            ->action(function (Status $status): void {
-                $version = self::release();
-
-                if ($version === null || $status->isBusy()) {
+            ->action(function (Status $status, Background $background): void {
+                if (self::release() === null || $status->isBusy()) {
                     return;
                 }
 
-                $status->queue($version);
-                RunUpdate::dispatch();
+                $background->start('application');
 
                 Notification::make()->title(__('updater::updater.queued'))->success()->send();
             });
@@ -71,7 +66,7 @@ final class UpdateActions
             ->modalDescription(fn (array $arguments): string => __('updater::updater.packages.confirm', [
                 'package' => $all ? __('updater::updater.packages.all') : self::argument($arguments),
             ]))
-            ->action(function (array $arguments, Status $status, PackageInventory $inventory) use ($all): void {
+            ->action(function (array $arguments, Status $status, PackageInventory $inventory, Background $background) use ($all): void {
                 $package = $all ? null : self::argument($arguments);
                 $names = array_map(static fn (Package $item): string => $item->name, $inventory->all());
 
@@ -80,8 +75,7 @@ final class UpdateActions
                     return;
                 }
 
-                $status->queue('composer: '.($package ?? '*'));
-                UpdatePackages::dispatch($package);
+                $background->start('packages', $package);
 
                 Notification::make()->title(__('updater::updater.queued'))->success()->send();
             });

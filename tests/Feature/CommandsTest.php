@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace TomaszBoloz\LaravelUpdater\Tests\Feature;
 
-use Illuminate\Support\Facades\Cache;
+use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
-use TomaszBoloz\LaravelUpdater\RunUpdate;
+use TomaszBoloz\LaravelUpdater\Jobs\RunTask;
 use TomaszBoloz\LaravelUpdater\Sources\Source;
+use TomaszBoloz\LaravelUpdater\State\RunLock;
 use TomaszBoloz\LaravelUpdater\Status;
 use TomaszBoloz\LaravelUpdater\Tests\Fixtures\FakeSource;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
-use TomaszBoloz\LaravelUpdater\UpdateChecker;
-use TomaszBoloz\LaravelUpdater\Updater;
 
 final class CommandsTest extends TestCase
 {
@@ -55,8 +54,8 @@ final class CommandsTest extends TestCase
     public function test_run_refuses_to_start_while_another_update_holds_the_lock(): void
     {
         Process::fake();
-        $lock = Cache::lock('updater:lock', 60);
-        $lock->get();
+        $lock = new RunLock(storage_path('app/updater/run.lock'));
+        $lock->acquire();
 
         $this->artisan('updater:run')->expectsOutputToContain('already running')->assertFailed();
 
@@ -73,24 +72,39 @@ final class CommandsTest extends TestCase
         Process::assertNothingRan();
     }
 
-    public function test_run_can_queue_the_update(): void
-    {
-        Queue::fake();
-        Config::set('updater.queue', ['connection' => 'redis', 'name' => 'updates', 'timeout' => 1800]);
-
-        $this->artisan('updater:run --queue')->expectsOutputToContain('Update to 1.2.0 queued.')->assertSuccessful();
-
-        Queue::assertPushed(RunUpdate::class, fn (RunUpdate $job): bool => $job->connection === 'redis'
-            && $job->queue === 'updates' && $job->timeout === 1800 && $job->tries === 1);
-        $this->assertSame(Status::QUEUED, $this->app->make(Status::class)->get()['state']);
-    }
-
-    public function test_the_queued_job_runs_the_updater(): void
+    public function test_background_runs_start_a_detached_process(): void
     {
         Process::fake();
 
-        (new RunUpdate)->handle($this->app->make(Updater::class), $this->app->make(UpdateChecker::class));
+        $this->artisan('updater:run --background')->expectsOutputToContain('started in the background')->assertSuccessful();
+
+        Process::assertRan(fn (PendingProcess $process): bool => is_string($process->command)
+            && str_starts_with($process->command, "nohup 'php' 'artisan' 'updater:work' 'application'")
+            && str_ends_with($process->command, ' 2>&1 &'));
+        $this->assertSame(Status::QUEUED, $this->app->make(Status::class)->get()['state']);
+    }
+
+    public function test_the_queue_runner_dispatches_a_job_with_the_updater_queue(): void
+    {
+        Queue::fake();
+        Config::set('updater.runner', 'queue');
+        Config::set('updater.queue', ['connection' => 'redis', 'name' => 'updates', 'timeout' => 1800]);
+
+        $this->artisan('updater:packages acme/plugin --background')->assertSuccessful();
+
+        Queue::assertPushed(RunTask::class, fn (RunTask $job): bool => $job->task === 'packages' && $job->package === 'acme/plugin'
+            && $job->connection === 'redis' && $job->queue === 'updates' && $job->timeout === 1800 && $job->tries === 1);
+    }
+
+    public function test_the_work_command_runs_the_task_and_refreshes_the_check_in_a_new_process(): void
+    {
+        Process::fake();
+
+        $this->artisan('updater:work application')->assertSuccessful();
 
         $this->assertSame(Status::SUCCEEDED, $this->app->make(Status::class)->get()['state']);
+        Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['php', 'artisan', 'updater:check']);
+        $this->artisan('updater:work --help')->assertSuccessful();
+        $this->artisan('updater:work rm')->assertExitCode(2);
     }
 }

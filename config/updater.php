@@ -105,12 +105,22 @@ return [
     // "archive" strategy: paths (relative to the app root) that are never overwritten.
     'preserve' => ['.env', '.git', 'storage', 'vendor', 'node_modules', 'bootstrap/cache', 'public/storage'],
 
+    /*
+    | How tasks started from the panel run, always outside the web request:
+    | "process" - a detached "php artisan updater:work" process (no queue worker needed; not on Windows),
+    | "queue"   - a queued RunTask job on the connection below (needs a running worker).
+    */
+    'runner' => env('UPDATER_RUNNER', 'process'),
+
+    // Prefix of the progress endpoint polled by the admin page ("/updater/status").
+    'route_prefix' => 'updater',
+
     'queue' => [
         'connection' => env('UPDATER_QUEUE_CONNECTION'),
         'name' => env('UPDATER_QUEUE'),
         'timeout' => 3600,
     ],
 
-    // Must be shared by web and queue workers and support locks (file, redis, database...).
+    // Cache for GitHub API answers. Progress, lock and check results live in files in storage/app/updater.
     'cache_store' => env('UPDATER_CACHE_STORE'),
 ];

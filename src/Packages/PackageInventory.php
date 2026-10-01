@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace TomaszBoloz\LaravelUpdater\Packages;
 
-use Illuminate\Contracts\Cache\Repository as Cache;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Carbon;
 use JsonException;
@@ -13,20 +12,21 @@ use TomaszBoloz\LaravelUpdater\CommandRunner;
 use TomaszBoloz\LaravelUpdater\GitHub;
 use TomaszBoloz\LaravelUpdater\Release;
 use TomaszBoloz\LaravelUpdater\Settings;
+use TomaszBoloz\LaravelUpdater\State\StateStore;
 
 /**
  * Installed direct Composer dependencies and their latest versions: "composer outdated" for every package,
- * plus GitHub tags for monitored private packages (their own tokens). The last check is cached.
+ * plus GitHub tags for monitored private packages (their own tokens). The last check is kept in a state file.
  *
  * @phpstan-type Check array{checked_at: string|null, error: string|null, latest: array<string, array{latest: string, status: string}>}
  */
 final readonly class PackageInventory
 {
-    private const string CACHE_KEY = 'updater:packages';
+    private const string FILE = 'packages';
 
     public function __construct(
         private Filesystem $files,
-        private Cache $cache,
+        private StateStore $state,
         private CommandRunner $runner,
         private GitHub $github,
         private Settings $settings,
@@ -57,8 +57,7 @@ final readonly class PackageInventory
     /** @return Check */
     public function lastCheck(): array
     {
-        $check = $this->cache->get(self::CACHE_KEY);
-        $check = is_array($check) ? $check : [];
+        $check = $this->state->get(self::FILE);
         $latest = [];
 
         foreach ((array) ($check['latest'] ?? []) as $name => $row) {
@@ -112,7 +111,7 @@ final readonly class PackageInventory
         }
 
         $check = ['checked_at' => Carbon::now()->toIso8601String(), 'error' => $errors === [] ? null : implode("\n", $errors), 'latest' => $latest];
-        $this->cache->forever(self::CACHE_KEY, $check);
+        $this->state->put(self::FILE, $check);
 
         return $check;
     }

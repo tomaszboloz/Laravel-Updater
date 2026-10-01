@@ -17,6 +17,7 @@ return [
     'release_notes' => 'What is new in :version',
     'open_release' => 'Open the release on GitHub',
     'log' => 'Update log',
+    'running_in_background' => 'Running in the background. You can leave this page; the site keeps working for you.',
     'application' => 'Application',
     'checking' => 'Checking for updates. This page refreshes automatically.',
     'packages' => [

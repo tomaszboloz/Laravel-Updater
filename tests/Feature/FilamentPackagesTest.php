@@ -10,8 +10,7 @@ use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use TomaszBoloz\LaravelUpdater\Filament\UpdaterPage;
-use TomaszBoloz\LaravelUpdater\Jobs\CheckForUpdates;
-use TomaszBoloz\LaravelUpdater\Jobs\UpdatePackages;
+use TomaszBoloz\LaravelUpdater\Jobs\RunTask;
 use TomaszBoloz\LaravelUpdater\Packages\PackageInventory;
 use TomaszBoloz\LaravelUpdater\SettingsStore;
 use TomaszBoloz\LaravelUpdater\Status;
@@ -65,12 +64,12 @@ final class FilamentPackagesTest extends FilamentTestCase
         Queue::fake();
 
         Livewire::test(UpdaterPage::class)->callAction('updatePackage', arguments: ['package' => 'acme/plugin']);
-        Queue::assertPushed(UpdatePackages::class, fn (UpdatePackages $job): bool => $job->package === 'acme/plugin');
+        Queue::assertPushed(RunTask::class, fn (RunTask $job): bool => $job->task === 'packages' && $job->package === 'acme/plugin');
         $this->assertTrue($this->app->make(Status::class)->isBusy(), 'Further updates wait for the queued one.');
         $this->app->make(Status::class)->finish(Status::SUCCEEDED);
 
         Livewire::test(UpdaterPage::class)->callAction('updateAllPackages');
-        Queue::assertPushed(UpdatePackages::class, fn (UpdatePackages $job): bool => $job->package === null);
+        Queue::assertPushed(RunTask::class, fn (RunTask $job): bool => $job->task === 'packages' && $job->package === null);
     }
 
     public function test_package_names_from_the_browser_must_be_installed_dependencies(): void
@@ -88,7 +87,7 @@ final class FilamentPackagesTest extends FilamentTestCase
 
         Livewire::test(UpdaterPage::class)->callAction('check')->assertNotified();
 
-        Queue::assertPushed(CheckForUpdates::class);
+        Queue::assertPushed(RunTask::class, fn (RunTask $job): bool => $job->task === 'check');
     }
 
     public function test_private_packages_are_managed_in_the_panel_and_an_empty_token_keeps_the_saved_one(): void
