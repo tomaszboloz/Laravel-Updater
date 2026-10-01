@@ -68,6 +68,7 @@ final class UpdaterServiceProvider extends PackageServiceProvider
             $this->settings($app)->integer('timeout', 900),
             [...$app->make(Credentials::class)->secrets(), ...array_filter([$this->settings($app)->maintenance()['secret']])],
             $app->make(Credentials::class)->environment(),
+            $this->hasDevPackages($app),
         ));
 
         $this->app->singleton(Status::class, fn (Application $app): Status => new Status($this->cache($app), $this->settings($app)->integer('queue.timeout', 3600)));
@@ -113,6 +114,15 @@ final class UpdaterServiceProvider extends PackageServiceProvider
         ));
 
         $this->registerPackageServices();
+    }
+
+    /** Composer records whether the last install included require-dev packages. */
+    private function hasDevPackages(Application $app): bool
+    {
+        $installed = $app->basePath('vendor/composer/installed.json');
+        $data = is_file($installed) ? json_decode((string) file_get_contents($installed), true) : null;
+
+        return is_array($data) && ($data['dev'] ?? false) === true;
     }
 
     private function settings(Application $app): Settings

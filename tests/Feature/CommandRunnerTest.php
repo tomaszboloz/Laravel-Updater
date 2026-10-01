@@ -8,6 +8,7 @@ use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Process;
 use TomaszBoloz\LaravelUpdater\CommandRunner;
+use TomaszBoloz\LaravelUpdater\Tests\Fixtures\InstalledApp;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
 use TomaszBoloz\LaravelUpdater\UpdaterException;
 
@@ -18,14 +19,35 @@ final class CommandRunnerTest extends TestCase
         Config::set('updater.binaries.composer', '/usr/bin/php8.3 /usr/local/bin/composer');
         Config::set('updater.environment', ['COMPOSER_HOME' => '/var/composer', 'HOME' => null]);
         Config::set('updater.timeout', 120);
+        $installed = new InstalledApp([], [], []); // a production install: no dev packages
+        $this->app->setBasePath($installed->path);
         Process::fake();
 
         $this->app->make(CommandRunner::class)->run(['@composer', 'install', '--no-dev']);
+        $installed->delete();
 
         Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['/usr/bin/php8.3', '/usr/local/bin/composer', 'install', '--no-dev']
             && $process->path === base_path()
             && $process->timeout === 120
             && $process->environment === ['COMPOSER_HOME' => '/var/composer']);
+    }
+
+    public function test_an_install_with_dev_packages_keeps_them(): void
+    {
+        $installed = new InstalledApp([], [], []);
+        file_put_contents($installed->path.'/vendor/composer/installed.json', json_encode(['packages' => [], 'dev' => true]));
+        $this->app->setBasePath($installed->path);
+        Process::fake();
+
+        try {
+            $this->app->make(CommandRunner::class)->run(['@composer', 'install', '--no-dev', '--no-interaction']);
+            $this->app->make(CommandRunner::class)->run(['@npm', 'run', 'build', '--no-dev']);
+        } finally {
+            $installed->delete();
+        }
+
+        Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['composer', 'install', '--no-interaction']);
+        Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['npm', 'run', 'build', '--no-dev']);
     }
 
     public function test_commands_without_placeholders_run_as_given(): void

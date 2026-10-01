@@ -17,6 +17,8 @@ final readonly class CommandRunner
      * @param  array<string, string|null>  $environment
      * @param  list<string>  $secrets
      * @param  array<string, string>  $credentials  environment added only for "@git" and "@composer" commands
+     * @param  bool  $keepDevPackages  drops "--no-dev" from Composer commands, so an install with dev packages
+     *                                 (a development machine) keeps them instead of losing tools like Pint or PHPUnit
      */
     public function __construct(
         private Process $process,
@@ -26,6 +28,7 @@ final readonly class CommandRunner
         private int $timeout = 900,
         #[SensitiveParameter] private array $secrets = [],
         #[SensitiveParameter] private array $credentials = [],
+        private bool $keepDevPackages = false,
     ) {}
 
     /**
@@ -86,6 +89,10 @@ final readonly class CommandRunner
         }
 
         $name = substr($first, 1);
+
+        if ($name === 'composer' && $this->keepDevPackages) {
+            $command = array_values(array_filter($command, static fn (string $argument): bool => $argument !== '--no-dev'));
+        }
         $binary = $this->binaries[$name] ?? null;
 
         if ($name === 'php' && ($binary === null || $binary === '')) {

@@ -234,6 +234,10 @@ Steps are arrays of arguments and are never passed through a shell:
 
 Remove the npm steps if your app has no front-end build, and add anything your deployment needs.
 
+`--no-dev` is dropped from Composer commands when the application was installed **with** dev packages
+(`vendor/composer/installed.json` says so), so running an update on a development machine does not remove
+tools such as PHPUnit, Pint or debug bars. Production installs (`composer install --no-dev`) stay without them.
+
 ## Update strategies
 
 **`git` (default).** The application directory is a clone of the repository with an `origin` remote. The
