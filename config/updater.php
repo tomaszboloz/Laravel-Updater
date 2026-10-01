@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+// Repository, token, strategy, installed version and maintenance options can be edited in the
+// Filament panel (Updates → Settings). Saved panel values take precedence over this file and .env.
 return [
 
     /*

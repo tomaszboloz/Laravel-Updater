@@ -60,6 +60,7 @@ final class UpdaterPage extends Page
     protected function getHeaderActions(): array
     {
         return [
+            SettingsAction::make(),
             Action::make('check')
                 ->label(__('updater::updater.check'))
                 ->icon('heroicon-o-magnifying-glass')

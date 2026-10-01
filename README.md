@@ -24,7 +24,7 @@ If any step fails, the code is rolled back to the previous commit, the recovery 
 - Client sites and SaaS installations that should update from the admin panel, without SSH access.
 - Many copies of one application (franchises, white-label installs) that track a single GitHub repository.
 - Shared hosting without git: the `archive` strategy downloads the release zipball over HTTPS.
-- Private repositories: the token is sent only to GitHub and never written to logs.
+- Private repositories: the token is entered in the panel, stored encrypted, sent only to GitHub and never logged.
 - Scheduled, unattended updates: `php artisan updater:run --force` from the scheduler.
 
 ## Requirements
@@ -43,18 +43,36 @@ composer require tomaszboloz/laravel-updater
 php artisan vendor:publish --tag=updater-config   # optional
 ```
 
-Add to `.env`:
+### Settings: in the admin panel
+
+Open **Updates → Settings** in the Filament panel and fill in:
+
+- **Repository**: `owner/repository` that publishes the releases;
+- **Access token**: only for private repositories (see below). It is stored **encrypted** with `APP_KEY`
+  and never sent back to the browser. Leave the field empty to keep the saved token;
+- **Update strategy**: `git` or `archive`;
+- **Installed version**: changes automatically after every update. Correct it only if it does not match the deployed code;
+- **Maintenance mode**: on/off, `Retry-After` and an optional bypass secret.
+
+Panel settings are saved in `storage/app/updater/settings.json` (permissions `0600`, secrets encrypted)
+and **take precedence over config and `.env`**. Without Filament, or as defaults before the first save,
+the same values can come from `.env`:
 
 ```dotenv
 UPDATER_REPOSITORY=your-org/your-app
-UPDATER_GITHUB_TOKEN=            # only for private repositories
-UPDATER_CURRENT_VERSION=1.0.0    # the version installed right now
+UPDATER_GITHUB_TOKEN=
+UPDATER_CURRENT_VERSION=1.0.0
 ```
+
+Update **steps** (the commands that run) are configured only in `config/updater.php`, on purpose:
+letting panel users define commands would let them run arbitrary code on the server.
+
+> Settings are encrypted with `APP_KEY`. If you rotate the key, enter the token again.
 
 ### Private repositories
 
 Create a **fine-grained personal access token** limited to the one repository, with
-**Repository permissions → Contents: Read-only**, and put it in `UPDATER_GITHUB_TOKEN`.
+**Repository permissions → Contents: Read-only**, and save it in **Updates → Settings**.
 Public repositories need no token, but a token raises GitHub's API rate limit.
 
 ### Who may update: the gate
@@ -91,7 +109,7 @@ public function panel(Panel $panel): Panel
 ```
 
 The **Updates** page shows the installed and latest version, the release notes (rendered as escaped
-Markdown), a **Check for updates** button and an **Update now** button with confirmation. While an update
+Markdown), a **Settings** button, a **Check for updates** button and an **Update now** button with confirmation. While an update
 runs, the page refreshes every five seconds and shows the live log.
 
 The plugin follows the Filament 5 plugin conventions: `make()` resolves it from the container, `get()`
@@ -127,16 +145,18 @@ Schedule::command('updater:run --force')->dailyAt('03:00')->withoutOverlapping()
 
 ## Configuration
 
+Options marked **panel** are edited in **Updates → Settings**; config and `.env` are their fallback.
+
 | Option | Default | Description |
 | --- | --- | --- |
-| `repository` | `UPDATER_REPOSITORY` | `owner/repository` that publishes the releases |
-| `token` | `UPDATER_GITHUB_TOKEN` | Token for private repositories |
-| `strategy` | `git` | `git` (checkout of the tag, with rollback) or `archive` (zipball, no rollback) |
-| `current_version` | `0.0.0` | Version before the first update; later stored in `storage/app/updater/version` |
+| `repository` (panel) | `UPDATER_REPOSITORY` | `owner/repository` that publishes the releases |
+| `token` (panel) | `UPDATER_GITHUB_TOKEN` | Token for private repositories, stored encrypted |
+| `strategy` (panel) | `git` | `git` (checkout of the tag, with rollback) or `archive` (zipball, no rollback) |
+| `current_version` (panel) | `0.0.0` | Version before the first update; later stored in `storage/app/updater/version` |
 | `ability` | `updater.manage` | Gate ability for the admin page |
 | `check_cache_minutes` | `10` | How long the latest release is cached |
 | `timeout` | `900` | Seconds allowed for each step |
-| `maintenance` | enabled, retry 60 | Maintenance mode during the update; `UPDATER_MAINTENANCE_SECRET` sets a bypass URL |
+| `maintenance` (panel) | enabled, retry 60 | Maintenance mode during the update, with an optional bypass secret |
 | `binaries` | `php`, `composer`, `npm`, `git` | Binaries behind `@php`, `@composer`, `@npm`, `@git`; e.g. `"php8.3 /usr/local/bin/composer"` |
 | `environment` | `HOME`, `COMPOSER_HOME` | Extra environment variables; workers often lack `HOME` |
 | `steps` | see below | Commands run after the new code is in place |
@@ -190,6 +210,8 @@ Listen to them to send notifications, for example to Slack or e-mail.
   format, which blocks option and path injection into `git` and the API. Restore points must be commit hashes.
 - **Secrets:** the GitHub token reaches git only through `GIT_CONFIG_*` environment variables, never through
   process arguments. The token and the maintenance secret are masked in logs, the status and exceptions.
+- **Settings at rest:** the token and the bypass secret are encrypted with `APP_KEY` in a `0600` file and never
+  rendered back into the form; update commands cannot be changed from the panel.
 - **HTTPS only:** the API URL must use `https://`.
 - **Archives:** entries with `..`, absolute paths, backslashes or drive letters abort the update before
   anything is copied (zip slip). Symlinks are not copied, and `.env`, `storage` and `vendor` are never overwritten.
