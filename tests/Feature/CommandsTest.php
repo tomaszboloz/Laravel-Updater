@@ -14,6 +14,7 @@ use TomaszBoloz\LaravelUpdater\Sources\Source;
 use TomaszBoloz\LaravelUpdater\Status;
 use TomaszBoloz\LaravelUpdater\Tests\Fixtures\FakeSource;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
+use TomaszBoloz\LaravelUpdater\UpdateChecker;
 use TomaszBoloz\LaravelUpdater\Updater;
 
 final class CommandsTest extends TestCase
@@ -28,15 +29,18 @@ final class CommandsTest extends TestCase
 
     public function test_check_reports_an_available_update(): void
     {
+        Process::fake(['*outdated*' => Process::result('{"installed": []}')]);
+
         $this->artisan('updater:check')
-            ->expectsOutputToContain('1.0.0')
-            ->expectsOutputToContain('1.2.0')
+            ->expectsOutputToContain('1.0.0 → 1.2.0')
             ->assertSuccessful();
     }
 
     public function test_check_fails_when_the_repository_is_not_configured(): void
     {
         Config::set('updater.repository', null);
+
+        Process::fake(['*outdated*' => Process::result('{"installed": []}')]);
 
         $this->artisan('updater:check')->expectsOutputToContain('not configured')->assertFailed();
     }
@@ -85,7 +89,7 @@ final class CommandsTest extends TestCase
     {
         Process::fake();
 
-        (new RunUpdate)->handle($this->app->make(Updater::class));
+        (new RunUpdate)->handle($this->app->make(Updater::class), $this->app->make(UpdateChecker::class));
 
         $this->assertSame(Status::SUCCEEDED, $this->app->make(Status::class)->get()['state']);
     }

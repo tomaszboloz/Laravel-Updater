@@ -6,20 +6,21 @@ namespace TomaszBoloz\LaravelUpdater\Filament;
 
 use BackedEnum;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
-use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Throwable;
+use TomaszBoloz\LaravelUpdater\Packages\PackageInventory;
 use TomaszBoloz\LaravelUpdater\Release;
-use TomaszBoloz\LaravelUpdater\RunUpdate;
 use TomaszBoloz\LaravelUpdater\Status;
+use TomaszBoloz\LaravelUpdater\UpdateChecker;
 use TomaszBoloz\LaravelUpdater\Updater;
 use UnitEnum;
 
-/** Admin page: installed/available version, release notes, update button and live log. */
+/** Admin page: application version, installed packages with updates (all or one), private packages, live log. */
 final class UpdaterPage extends Page
 {
     protected static string|BackedEnum|null $navigationIcon = 'heroicon-o-arrow-path';
@@ -51,49 +52,49 @@ final class UpdaterPage extends Page
         return self::plugin()?->getNavigationSort();
     }
 
+    /** Number of available updates from the last (manual or scheduled) check; no network calls. */
+    public static function getNavigationBadge(): ?string
+    {
+        try {
+            $count = self::canAccess() ? app(UpdateChecker::class)->availableCount() : 0;
+        } catch (Throwable) {
+            return null;
+        }
+
+        return $count > 0 ? (string) $count : null;
+    }
+
+    public static function getNavigationBadgeColor(): string
+    {
+        return 'warning';
+    }
+
     public function getTitle(): string
     {
         return __('updater::updater.title');
     }
 
-    /** @return array<Action> */
+    public function updateApplicationAction(): Action
+    {
+        return UpdateActions::application();
+    }
+
+    public function updatePackageAction(): Action
+    {
+        return UpdateActions::packages('updatePackage', all: false);
+    }
+
+    /** @return array<Action|ActionGroup> */
     protected function getHeaderActions(): array
     {
         return [
-            SettingsAction::make(),
-            Action::make('check')
-                ->label(__('updater::updater.check'))
-                ->icon('heroicon-o-magnifying-glass')
-                ->color('gray')
-                ->action(function (): void {
-                    $lookup = $this->lookup(fresh: true);
-
-                    Notification::make()
-                        ->title($lookup['error'] ?? ($lookup['release'] === null
-                            ? __('updater::updater.up_to_date')
-                            : __('updater::updater.available', ['version' => $lookup['release']->version()])))
-                        ->status($lookup['error'] === null ? 'success' : 'danger')
-                        ->send();
-                }),
-            Action::make('update')
-                ->label(__('updater::updater.update'))
-                ->icon('heroicon-o-arrow-down-tray')
-                ->color('warning')
-                ->visible(fn (Status $status): bool => $this->lookup()['release'] !== null && ! $status->isBusy())
-                ->requiresConfirmation()
-                ->modalDescription(fn (): string => __('updater::updater.confirm', ['version' => $this->lookup()['release']?->version()]))
-                ->action(function (Status $status): void {
-                    $release = $this->lookup(fresh: true)['release'];
-
-                    if ($release === null || $status->isBusy()) {
-                        return;
-                    }
-
-                    $status->queue($release->version());
-                    RunUpdate::dispatch();
-
-                    Notification::make()->title(__('updater::updater.queued'))->success()->send();
-                }),
+            UpdateActions::check(),
+            UpdateActions::packages('updateAllPackages', all: true),
+            ActionGroup::make([SettingsAction::make(), PrivatePackagesAction::make()])
+                ->label(__('updater::updater.settings.title'))
+                ->icon('heroicon-o-cog-6-tooth')
+                ->button()
+                ->color('gray'),
         ];
     }
 
@@ -102,12 +103,15 @@ final class UpdaterPage extends Page
     {
         $lookup = $this->lookup();
         $status = app(Status::class);
+        $inventory = app(PackageInventory::class);
 
         return [
             ...$lookup,
             'current' => app(Updater::class)->currentVersion(),
             'status' => $status->get(),
-            'busy' => $status->isBusy(),
+            'busy' => $status->isBusy() || app(UpdateChecker::class)->isChecking(),
+            'packages' => $inventory->all(),
+            'check' => $inventory->lastCheck(),
             // Release notes are untrusted: raw HTML is escaped and unsafe links are dropped.
             'notes' => $lookup['release'] === null ? null
                 : Str::markdown($lookup['release']->notes, ['html_input' => 'escape', 'allow_unsafe_links' => false]),
@@ -120,10 +124,10 @@ final class UpdaterPage extends Page
     }
 
     /** @return array{release: Release|null, error: string|null} */
-    private function lookup(bool $fresh = false): array
+    private function lookup(): array
     {
         try {
-            return ['release' => app(Updater::class)->available($fresh), 'error' => null];
+            return ['release' => app(Updater::class)->available(), 'error' => null];
         } catch (Throwable $exception) {
             report($exception);
 

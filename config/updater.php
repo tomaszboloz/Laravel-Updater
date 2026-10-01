@@ -34,6 +34,12 @@ return [
 
     'check_cache_minutes' => 10,
 
+    /*
+    | Automatic monitoring of the application and every package (cron expression, null = off).
+    | Requires Laravel's scheduler: "* * * * * php artisan schedule:run". Found updates dispatch UpdatesAvailable.
+    */
+    'schedule' => env('UPDATER_SCHEDULE', '0 */6 * * *'),
+
     // Seconds allowed for a single step (composer, npm build...).
     'timeout' => 900,
 
@@ -74,6 +80,27 @@ return [
         ['@composer', 'install', '--no-dev', '--no-interaction', '--prefer-dist', '--optimize-autoloader'],
         ['@php', 'artisan', 'optimize:clear'],
     ],
+
+    /*
+    | Package updates from the panel: "{packages}" becomes the package name, or disappears when updating all.
+    | Private packages are added in the panel (Updates → Private packages) with their own tokens.
+    */
+    'package_steps' => [
+        ['@composer', 'update', '{packages}', '--with-dependencies', '--no-dev', '--no-interaction', '--prefer-dist', '--optimize-autoloader'],
+        ['@php', 'artisan', 'migrate', '--force'],
+        ['@php', 'artisan', 'optimize:clear'],
+        ['@php', 'artisan', 'optimize'],
+        ['@php', 'artisan', 'queue:restart'],
+    ],
+
+    // Run after a failed package update, once composer.lock has been restored.
+    'package_recovery_steps' => [
+        ['@composer', 'install', '--no-dev', '--no-interaction', '--prefer-dist', '--optimize-autoloader'],
+        ['@php', 'artisan', 'optimize:clear'],
+    ],
+
+    // "git" strategy: tracked files whose local changes do not block an application update (changed by package updates).
+    'git_ignored_changes' => ['composer.lock'],
 
     // "archive" strategy: paths (relative to the app root) that are never overwritten.
     'preserve' => ['.env', '.git', 'storage', 'vendor', 'node_modules', 'bootstrap/cache', 'public/storage'],

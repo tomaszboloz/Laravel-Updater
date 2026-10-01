@@ -16,6 +16,7 @@ final readonly class CommandRunner
      * @param  array<string, string|null>  $binaries  "@name" placeholder => binary, e.g. "composer" or "php8.3 /usr/bin/composer"
      * @param  array<string, string|null>  $environment
      * @param  list<string>  $secrets
+     * @param  array<string, string>  $credentials  environment added only for "@git" and "@composer" commands
      */
     public function __construct(
         private Process $process,
@@ -24,6 +25,7 @@ final readonly class CommandRunner
         private array $environment = [],
         private int $timeout = 900,
         #[SensitiveParameter] private array $secrets = [],
+        #[SensitiveParameter] private array $credentials = [],
     ) {}
 
     /**
@@ -38,7 +40,11 @@ final readonly class CommandRunner
         $result = $this->process->newPendingProcess()
             ->path($this->basePath)
             ->timeout($this->timeout)
-            ->env([...array_filter($this->environment, static fn (?string $value): bool => $value !== null && $value !== ''), ...$environment])
+            ->env([
+                ...array_filter($this->environment, static fn (?string $value): bool => $value !== null && $value !== ''),
+                ...(in_array($command[0] ?? '', ['@git', '@composer'], true) ? $this->credentials : []),
+                ...$environment,
+            ])
             ->run($this->resolve($command), $listener);
 
         if ($result->failed()) {

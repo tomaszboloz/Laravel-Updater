@@ -52,7 +52,7 @@ abstract class FilamentTestCase extends TestCase
             $table->timestamps();
         });
         Filament::setCurrentPanel(Filament::getPanel('admin'));
-        Http::fake(['*' => Http::response($this->release(['body' => "<script>alert(1)</script>\n\n**Faster** checkout"]))]);
+        Http::fake(['api.github.com/repos/acme/shop/releases/latest' => Http::response($this->release(['body' => "<script>alert(1)</script>\n\n**Faster** checkout"]))]);
         $this->actingAs(User::query()->create(['name' => 'Admin', 'email' => 'admin@example.com', 'password' => 'x']));
     }
 

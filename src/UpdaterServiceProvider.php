@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace TomaszBoloz\LaravelUpdater;
 
-use Illuminate\Config\Repository as Config;
 use Illuminate\Contracts\Cache\Factory as CacheFactory;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Contracts\Cache\Repository as Cache;
@@ -16,7 +15,9 @@ use Illuminate\Process\Factory as Process;
 use LogicException;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
+use TomaszBoloz\LaravelUpdater\Concerns\RegistersPackageServices;
 use TomaszBoloz\LaravelUpdater\Console\CheckCommand;
+use TomaszBoloz\LaravelUpdater\Console\PackagesCommand;
 use TomaszBoloz\LaravelUpdater\Console\RunCommand;
 use TomaszBoloz\LaravelUpdater\Sources\ArchiveSource;
 use TomaszBoloz\LaravelUpdater\Sources\GitSource;
@@ -24,6 +25,8 @@ use TomaszBoloz\LaravelUpdater\Sources\Source;
 
 final class UpdaterServiceProvider extends PackageServiceProvider
 {
+    use RegistersPackageServices;
+
     public static string $name = 'laravel-updater';
 
     public function configurePackage(Package $package): void
@@ -33,7 +36,7 @@ final class UpdaterServiceProvider extends PackageServiceProvider
             ->hasConfigFile()
             ->hasViews()
             ->hasTranslations()
-            ->hasCommands([CheckCommand::class, RunCommand::class]);
+            ->hasCommands([CheckCommand::class, RunCommand::class, PackagesCommand::class]);
     }
 
     /** Settings-dependent services are bound (not shared), so long-running queue workers see panel changes. */
@@ -45,106 +48,80 @@ final class UpdaterServiceProvider extends PackageServiceProvider
             $app->storagePath('app/updater/settings.json'),
         ));
 
+        $this->app->bind(Settings::class, fn (Application $app): Settings => new Settings($app->make(SettingsStore::class), $app->make('config')));
+        $this->app->bind(Credentials::class, fn (Application $app): Credentials => new Credentials($app->make(Settings::class)));
+
         $this->app->bind(GitHub::class, fn (Application $app): GitHub => new GitHub(
             $app->make(Http::class),
             $this->cache($app),
-            $this->text($app, 'repository'),
-            $this->text($app, 'token'),
-            $this->string($app, 'updater.api_url') ?? 'https://api.github.com',
-            $this->config($app)->integer('updater.check_cache_minutes', 10),
+            $this->settings($app)->repository(),
+            $this->settings($app)->token(),
+            $this->settings($app)->apiUrl(),
+            $this->settings($app)->integer('check_cache_minutes', 10),
         ));
 
         $this->app->bind(CommandRunner::class, fn (Application $app): CommandRunner => new CommandRunner(
             $app->make(Process::class),
             $app->basePath(),
-            $this->strings($app, 'updater.binaries'),
-            $this->strings($app, 'updater.environment'),
-            $this->config($app)->integer('updater.timeout', 900),
-            [...$app->make(GitHub::class)->secrets(), ...array_filter([$this->text($app, 'maintenance_secret', 'maintenance.secret')])],
+            $this->settings($app)->map('binaries'),
+            $this->settings($app)->map('environment'),
+            $this->settings($app)->integer('timeout', 900),
+            [...$app->make(Credentials::class)->secrets(), ...array_filter([$this->settings($app)->maintenance()['secret']])],
+            $app->make(Credentials::class)->environment(),
         ));
 
-        $this->app->singleton(Status::class, fn (Application $app): Status => new Status(
-            $this->cache($app),
-            $this->config($app)->integer('updater.queue.timeout', 3600),
-        ));
+        $this->app->singleton(Status::class, fn (Application $app): Status => new Status($this->cache($app), $this->settings($app)->integer('queue.timeout', 3600)));
 
         $this->app->bind(VersionStore::class, fn (Application $app): VersionStore => new VersionStore(
             $app->make(Filesystem::class),
             $app->storagePath('app/updater/version'),
-            $this->string($app, 'updater.current_version') ?? '0.0.0',
+            $this->settings($app)->configString('current_version') ?? '0.0.0',
         ));
 
-        $this->app->bind(Source::class, fn (Application $app): Source => match ($strategy = $this->text($app, 'strategy')) {
-            'git' => new GitSource($app->make(CommandRunner::class), $app->make(GitHub::class)),
+        $this->app->bind(Source::class, fn (Application $app): Source => match ($strategy = $this->settings($app)->strategy()) {
+            'git' => new GitSource($app->make(CommandRunner::class), $this->settings($app)->list('git_ignored_changes')),
             'archive' => new ArchiveSource(
                 $app->make(GitHub::class),
                 $app->make(Filesystem::class),
                 $app->basePath(),
                 $app->storagePath('app/updater/work'),
-                array_values(array_filter($this->config($app)->array('updater.preserve', []), 'is_string')),
+                $this->settings($app)->list('preserve'),
             ),
-            default => throw UpdaterException::unknownStrategy((string) $strategy),
+            default => throw UpdaterException::unknownStrategy($strategy),
         });
 
-        $this->app->bind(Updater::class, function (Application $app): Updater {
+        $this->app->bind(Pipeline::class, function (Application $app): Pipeline {
             $locks = $this->cache($app)->getStore();
 
             if (! $locks instanceof LockProvider) {
                 throw new LogicException('The updater cache store must support atomic locks.');
             }
 
-            /** @var array{steps: list<list<string>>, recovery_steps: list<list<string>>} $config */
-            $config = $this->config($app)->get('updater');
-            $stored = $app->make(SettingsStore::class);
+            $settings = $this->settings($app);
 
-            return new Updater(
-                $app->make(GitHub::class),
-                $app->make(Source::class),
-                $app->make(CommandRunner::class),
-                $app->make(VersionStore::class),
-                $app->make(Status::class),
-                $locks,
-                $app->make('events'),
-                $config['steps'],
-                $config['recovery_steps'],
-                [
-                    'enabled' => (bool) ($stored->get('maintenance_enabled') ?? $this->config($app)->boolean('updater.maintenance.enabled', true)),
-                    'retry' => (int) ($stored->get('maintenance_retry') ?? $this->config($app)->integer('updater.maintenance.retry', 60)),
-                    'secret' => $this->text($app, 'maintenance_secret', 'maintenance.secret'),
-                ],
-                $this->config($app)->integer('updater.queue.timeout', 3600) + 300,
-            );
+            return new Pipeline($app->make(CommandRunner::class), $app->make(Status::class), $locks, $settings->maintenance(), $settings->integer('queue.timeout', 3600) + 300);
         });
+
+        $this->app->bind(Updater::class, fn (Application $app): Updater => new Updater(
+            $app->make(GitHub::class),
+            $app->make(Source::class),
+            $app->make(Pipeline::class),
+            $app->make(VersionStore::class),
+            $app->make('events'),
+            $this->settings($app)->commands('steps'),
+            $this->settings($app)->commands('recovery_steps'),
+        ));
+
+        $this->registerPackageServices();
     }
 
-    private function config(Application $app): Config
+    private function settings(Application $app): Settings
     {
-        return $app->make('config');
+        return $app->make(Settings::class);
     }
 
     private function cache(Application $app): Cache
     {
-        return $app->make(CacheFactory::class)->store($this->string($app, 'updater.cache_store'));
-    }
-
-    /** @return array<string, string> */
-    private function strings(Application $app, string $key): array
-    {
-        return array_filter($this->config($app)->array($key, []), static fn (mixed $value, mixed $name): bool => is_string($name) && is_string($value) && $value !== '', ARRAY_FILTER_USE_BOTH);
-    }
-
-    /** Panel setting, falling back to config("updater.{$configKey}"). */
-    private function text(Application $app, string $setting, ?string $configKey = null): ?string
-    {
-        $value = $app->make(SettingsStore::class)->get($setting);
-
-        return is_string($value) && $value !== '' ? $value : $this->string($app, 'updater.'.($configKey ?? $setting));
-    }
-
-    private function string(Application $app, string $key): ?string
-    {
-        $value = $this->config($app)->get($key);
-
-        return is_string($value) && $value !== '' ? $value : null;
+        return $app->make(CacheFactory::class)->store($this->settings($app)->configString('cache_store'));
     }
 }

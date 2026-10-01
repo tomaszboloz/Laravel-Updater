@@ -14,7 +14,7 @@ use Throwable;
 /** GitHub REST client for public and private (token) repositories. */
 final readonly class GitHub
 {
-    private const string REPOSITORY_PATTERN = '/\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}\z/';
+    public const string REPOSITORY_PATTERN = '/\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\/[A-Za-z0-9._-]{1,100}\z/';
 
     public function __construct(
         private Http $http,
@@ -72,29 +72,38 @@ final readonly class GitHub
         }
     }
 
-    /**
-     * Git configuration passed through the environment, so the token never shows up in process arguments.
-     *
-     * @return array<string, string>
-     */
-    public function gitEnvironment(): array
+    /** Client for another repository, e.g. a private Composer package with its own token. */
+    public function forRepository(string $repository, #[SensitiveParameter] ?string $token): self
     {
-        if (! $this->hasToken()) {
-            return [];
-        }
-
-        return [
-            'GIT_TERMINAL_PROMPT' => '0',
-            'GIT_CONFIG_COUNT' => '1',
-            'GIT_CONFIG_KEY_0' => 'http.https://github.com/.extraheader',
-            'GIT_CONFIG_VALUE_0' => 'AUTHORIZATION: basic '.$this->basicCredentials(),
-        ];
+        return new self($this->http, $this->cache, $repository, $token, $this->apiUrl, $this->cacheMinutes);
     }
 
-    /** @return list<string> values that must never appear in logs */
-    public function secrets(): array
+    /** Highest semantic-version tag (packages often publish tags without releases). */
+    public function latestTag(bool $fresh = false): ?string
     {
-        return $this->hasToken() ? [(string) $this->token, $this->basicCredentials()] : [];
+        $key = 'updater:tag:'.sha1($this->repository());
+
+        if ($fresh) {
+            $this->cache->forget($key);
+        }
+
+        $tag = $this->cache->remember($key, now()->addMinutes($this->cacheMinutes), function (): string {
+            $response = $this->request()->get("repos/{$this->repository()}/tags", ['per_page' => 100]);
+
+            if ($response->failed()) {
+                throw UpdaterException::github($response->status());
+            }
+
+            $tags = array_filter(
+                array_column((array) $response->json(), 'name'),
+                static fn (mixed $name): bool => is_string($name) && preg_match(Release::TAG_PATTERN, $name) === 1,
+            );
+            usort($tags, static fn (string $a, string $b): int => version_compare(Release::normalize($b), Release::normalize($a)));
+
+            return $tags[0] ?? '';
+        });
+
+        return $tag !== '' ? $tag : null;
     }
 
     private function repository(): string
@@ -109,11 +118,6 @@ final readonly class GitHub
     private function hasToken(): bool
     {
         return is_string($this->token) && $this->token !== '';
-    }
-
-    private function basicCredentials(): string
-    {
-        return base64_encode('x-access-token:'.$this->token);
     }
 
     private function request(): PendingRequest

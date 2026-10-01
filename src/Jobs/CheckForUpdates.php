@@ -2,17 +2,17 @@
 
 declare(strict_types=1);
 
-namespace TomaszBoloz\LaravelUpdater;
+namespace TomaszBoloz\LaravelUpdater\Jobs;
 
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
-use TomaszBoloz\LaravelUpdater\Jobs\UsesUpdaterQueue;
+use TomaszBoloz\LaravelUpdater\UpdateChecker;
 
-/** Updates the whole application on a queue worker, away from web request time limits. */
-final class RunUpdate implements ShouldBeUnique, ShouldQueue
+/** Checks the application and every package in the background ("composer outdated" can take a while). */
+final class CheckForUpdates implements ShouldBeUnique, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
@@ -24,9 +24,8 @@ final class RunUpdate implements ShouldBeUnique, ShouldQueue
         $this->useUpdaterQueue();
     }
 
-    public function handle(Updater $updater, UpdateChecker $checker): void
+    public function handle(UpdateChecker $checker): void
     {
-        $updater->update();
         $checker->check();
     }
 }

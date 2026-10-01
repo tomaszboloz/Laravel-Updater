@@ -9,6 +9,7 @@ use Illuminate\Console\ConfirmableTrait;
 use Throwable;
 use TomaszBoloz\LaravelUpdater\RunUpdate;
 use TomaszBoloz\LaravelUpdater\Status;
+use TomaszBoloz\LaravelUpdater\UpdateChecker;
 use TomaszBoloz\LaravelUpdater\Updater;
 
 final class RunCommand extends Command
@@ -21,7 +22,7 @@ final class RunCommand extends Command
 
     protected $description = 'Install the latest GitHub release: code, Composer, migrations, npm build and caches';
 
-    public function handle(Updater $updater, Status $status): int
+    public function handle(Updater $updater, Status $status, UpdateChecker $checker): int
     {
         if (! $this->confirmToProceed()) {
             return self::FAILURE;
@@ -49,6 +50,7 @@ final class RunCommand extends Command
             return self::FAILURE;
         }
 
+        $checker->check();
         $this->components->info($release === null ? 'The application is up to date.' : "Updated to {$release->version()}.");
 
         return self::SUCCESS;

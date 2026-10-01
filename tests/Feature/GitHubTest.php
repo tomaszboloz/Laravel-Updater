@@ -102,16 +102,15 @@ final class GitHubTest extends TestCase
         unlink((string) $path);
     }
 
-    public function test_git_credentials_travel_in_the_environment_and_are_listed_as_secrets(): void
+    public function test_the_latest_tag_of_another_repository_uses_its_own_token(): void
     {
-        $this->assertSame([], $this->app->make(GitHub::class)->gitEnvironment());
+        Http::fake(['api.github.com/repos/acme/plugin/tags*' => Http::response([
+            ['name' => 'v1.9.0'], ['name' => 'v1.10.0'], ['name' => 'nightly'], ['name' => '--upload-pack=x'], ['name' => 'v1.10.0-beta.1'],
+        ])]);
 
-        Config::set('updater.token', self::TOKEN);
-        $this->app->forgetInstance(GitHub::class);
-        $github = $this->app->make(GitHub::class);
-        $basic = base64_encode('x-access-token:'.self::TOKEN);
+        $tag = $this->app->make(GitHub::class)->forRepository('acme/plugin', 'plugin-token')->latestTag();
 
-        $this->assertSame('AUTHORIZATION: basic '.$basic, $github->gitEnvironment()['GIT_CONFIG_VALUE_0']);
-        $this->assertSame([self::TOKEN, $basic], $github->secrets());
+        $this->assertSame('v1.10.0', $tag);
+        Http::assertSent(fn (Request $request): bool => $request->hasHeader('Authorization', 'Bearer plugin-token'));
     }
 }

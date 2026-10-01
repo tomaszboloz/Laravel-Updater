@@ -4,10 +4,16 @@
 [![Latest release](https://img.shields.io/github/v/release/tomaszboloz/Laravel-Updater)](https://github.com/tomaszboloz/Laravel-Updater/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
 
-Laravel Updater lets an application update itself from its own **GitHub releases**, from a button in the
-**Filament admin panel** or from Artisan. It works with **public and private** repositories.
+Laravel Updater keeps a Laravel application up to date from the **Filament admin panel** or Artisan:
 
-When a newer release appears, one click (or one command) runs the whole deployment:
+- the **whole application**, from its own GitHub releases (public or private repository);
+- **every installed Composer package**, one at a time or all at once;
+- **private packages** (e.g. your own plugins) from private GitHub repositories, each with its own token.
+
+It **monitors** everything automatically on a schedule, shows the number of available updates in the
+navigation badge, and has a manual **Check for updates** button.
+
+When a newer application release appears, one click (or one command) runs the whole deployment:
 
 1. takes a lock, so only one update runs at a time;
 2. puts the site into maintenance mode (with an optional bypass secret);
@@ -19,6 +25,42 @@ When a newer release appears, one click (or one command) runs the whole deployme
 If any step fails, the code is rolled back to the previous commit, the recovery steps run
 (`composer install`, `optimize:clear`), the site goes back up and the error is shown in the panel.
 
+## Packages
+
+The **Installed packages** table lists every direct dependency from `composer.json` (with `dev` and
+`private` badges), the installed version and the latest one found by the last check:
+
+- **Update** on a row runs `composer update vendor/package --with-dependencies`, then migrations and cache clearing;
+- **Update all packages** runs the same for every package;
+- a new **major** version is shown but not installable from the panel, because it needs a new constraint
+  in `composer.json` (a code change that belongs in a release of the application).
+
+If a step fails, `composer.lock` is restored and `composer install` brings `vendor/` back to the previous state.
+Only installed direct dependencies can be updated: package names from the browser are checked against them.
+
+### Private packages
+
+**Updates → Settings → Private packages** holds any number of private Composer packages hosted on GitHub:
+Composer name, `owner/repository` and a token (fine-grained, *Contents: Read-only*). Tokens are encrypted and never
+sent back to the browser; an empty field keeps the saved token.
+
+Private packages are monitored by their **tags**. During updates every repository gets its own token:
+git receives a per-repository `http.<url>.extraheader`, Composer receives `COMPOSER_AUTH`, all through the
+environment, never through process arguments. The packages still need their `repositories` entry
+(`"type": "vcs"`) in `composer.json`, as usual for private packages.
+
+### Monitoring
+
+`updater:check` checks the application release and all packages in one go (`composer outdated --direct`
+plus GitHub tags of private packages). It runs:
+
+- on the **schedule** from `updater.schedule` (default every 6 hours; requires `* * * * * php artisan schedule:run`);
+- from the **Check for updates** button (queued, the page refreshes by itself);
+- after every update, so the list is always current.
+
+When something newer is found, `UpdatesAvailable` is dispatched (listen to it for e-mail or Slack notifications),
+and the navigation badge shows the count.
+
 ## Use cases
 
 - Client sites and SaaS installations that should update from the admin panel, without SSH access.
@@ -26,6 +68,8 @@ If any step fails, the code is rolled back to the previous commit, the recovery 
 - Shared hosting without git: the `archive` strategy downloads the release zipball over HTTPS.
 - Private repositories: the token is entered in the panel, stored encrypted, sent only to GitHub and never logged.
 - Scheduled, unattended updates: `php artisan updater:run --force` from the scheduler.
+- Agencies with many private plugins shared between projects: every project shows which plugin versions it runs
+  and updates them with one click.
 
 ## Requirements
 
@@ -130,7 +174,10 @@ Choose a dedicated connection or queue with `UPDATER_QUEUE_CONNECTION` and `UPDA
 ## Artisan
 
 ```bash
-php artisan updater:check          # installed vs latest version
+php artisan updater:check          # application release and every package
+php artisan updater:packages       # update all packages (asks for confirmation in production)
+php artisan updater:packages acme/plugin --force   # update one package
+php artisan updater:packages --queue               # hand it to the queue worker
 php artisan updater:run            # update now (asks for confirmation in production)
 php artisan updater:run --force    # no confirmation, e.g. from the scheduler or CI
 php artisan updater:run --queue    # hand the update to the queue worker
@@ -154,7 +201,11 @@ Options marked **panel** are edited in **Updates → Settings**; config and `.en
 | `strategy` (panel) | `git` | `git` (checkout of the tag, with rollback) or `archive` (zipball, no rollback) |
 | `current_version` (panel) | `0.0.0` | Version before the first update; later stored in `storage/app/updater/version` |
 | `ability` | `updater.manage` | Gate ability for the admin page |
-| `check_cache_minutes` | `10` | How long the latest release is cached |
+| `check_cache_minutes` | `10` | How long the latest release and tags are cached |
+| `schedule` | `0 */6 * * *` | Cron expression of the automatic check, `null` turns it off |
+| `package_steps` | `composer update {packages}`, migrate, caches | Commands of a package update; `{packages}` is the package or nothing for all |
+| `package_recovery_steps` | `composer install`, `optimize:clear` | Commands run after `composer.lock` has been restored |
+| `git_ignored_changes` | `composer.lock` | Tracked files whose local changes do not block an application update |
 | `timeout` | `900` | Seconds allowed for each step |
 | `maintenance` (panel) | enabled, retry 60 | Maintenance mode during the update, with an optional bypass secret |
 | `binaries` | `php`, `composer`, `npm`, `git` | Binaries behind `@php`, `@composer`, `@npm`, `@git`; e.g. `"php8.3 /usr/local/bin/composer"` |
@@ -199,6 +250,9 @@ release stay in place, and there is no automatic rollback, so keep backups.
 | --- | --- |
 | `TomaszBoloz\LaravelUpdater\Events\UpdateSucceeded` | The release is installed (`$event->release`) |
 | `TomaszBoloz\LaravelUpdater\Events\UpdateFailed` | The update failed (`$event->release`, `$event->exception`) |
+| `TomaszBoloz\LaravelUpdater\Events\UpdatesAvailable` | A check found updates (`$event->release`, `$event->packages`) |
+| `TomaszBoloz\LaravelUpdater\Events\PackagesUpdated` | Packages updated (`$event->package`, `null` = all) |
+| `TomaszBoloz\LaravelUpdater\Events\PackagesUpdateFailed` | A package update failed (`$event->package`, `$event->exception`) |
 
 Listen to them to send notifications, for example to Slack or e-mail.
 

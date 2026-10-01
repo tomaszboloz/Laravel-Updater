@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace TomaszBoloz\LaravelUpdater\Tests\Feature;
 
+use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
@@ -31,7 +32,7 @@ final class FilamentPageTest extends FilamentTestCase
             ->assertSee('1.2.0')
             ->assertSeeHtml('<strong>Faster</strong>')
             ->assertDontSeeHtml('<script>alert(1)</script>')
-            ->assertActionVisible('update');
+            ->assertActionVisible('updateApplication');
 
         $this->assertSame('System', UpdaterPage::getNavigationGroup());
         $this->assertSame(5, UpdaterPage::getNavigationSort());
@@ -42,10 +43,20 @@ final class FilamentPageTest extends FilamentTestCase
         Gate::define('updater.manage', static fn (): bool => true);
         Queue::fake();
 
-        Livewire::test(UpdaterPage::class)->callAction('update')->assertHasNoActionErrors();
+        Livewire::test(UpdaterPage::class)->callAction('updateApplication')->assertHasNoActionErrors();
 
         Queue::assertPushed(RunUpdate::class);
         $this->assertSame(Status::QUEUED, $this->app->make(Status::class)->get()['state']);
+    }
+
+    public function test_the_update_button_is_not_rendered_when_the_application_is_up_to_date(): void
+    {
+        Gate::define('updater.manage', static fn (): bool => true);
+        Config::set('updater.current_version', '1.2.0');
+
+        Livewire::test(UpdaterPage::class)
+            ->assertActionHidden('updateApplication')
+            ->assertDontSee('Update now');
     }
 
     public function test_the_update_action_is_hidden_while_an_update_runs(): void
@@ -53,6 +64,6 @@ final class FilamentPageTest extends FilamentTestCase
         Gate::define('updater.manage', static fn (): bool => true);
         $this->app->make(Status::class)->start('1.2.0');
 
-        Livewire::test(UpdaterPage::class)->assertActionHidden('update');
+        Livewire::test(UpdaterPage::class)->assertActionHidden('updateApplication');
     }
 }

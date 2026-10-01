@@ -8,7 +8,6 @@ use Illuminate\Filesystem\Filesystem;
 use Illuminate\Process\Factory;
 use Symfony\Component\Process\ExecutableFinder;
 use TomaszBoloz\LaravelUpdater\CommandRunner;
-use TomaszBoloz\LaravelUpdater\GitHub;
 use TomaszBoloz\LaravelUpdater\Release;
 use TomaszBoloz\LaravelUpdater\Sources\GitSource;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
@@ -73,7 +72,7 @@ final class GitIntegrationTest extends TestCase
     {
         $runner = new CommandRunner(new Factory, $this->root.'/app', ['git' => 'git'], ['GIT_CONFIG_NOSYSTEM' => '1'], 60);
 
-        return new GitSource($runner, $this->app->make(GitHub::class));
+        return new GitSource($runner, []);
     }
 
     private function commit(string $version): void

@@ -5,36 +5,34 @@ declare(strict_types=1);
 namespace TomaszBoloz\LaravelUpdater\Console;
 
 use Illuminate\Console\Command;
-use Throwable;
+use TomaszBoloz\LaravelUpdater\UpdateChecker;
 use TomaszBoloz\LaravelUpdater\Updater;
 
+/** Checks the application release and every package; also runs on the schedule from config("updater.schedule"). */
 final class CheckCommand extends Command
 {
     protected $signature = 'updater:check';
 
-    protected $description = 'Check GitHub for a newer release of the application';
+    protected $description = 'Check GitHub and Composer for a newer application release and package versions';
 
-    public function handle(Updater $updater): int
+    public function handle(UpdateChecker $checker, Updater $updater): int
     {
-        try {
-            $release = $updater->available(fresh: true);
-        } catch (Throwable $exception) {
-            $this->components->error($exception->getMessage());
+        $result = $checker->check();
 
-            return self::FAILURE;
+        $this->components->twoColumnDetail('Application', $updater->currentVersion().($result['release'] === null ? '' : ' → '.$result['release']->version()));
+
+        foreach ($result['packages'] as $package) {
+            $this->components->twoColumnDetail($package->name.($package->private ? ' (private)' : ''), $package->version.' → '.$package->latest.($package->canUpdate() ? '' : ' (major)'));
         }
 
-        $this->components->twoColumnDetail('Installed version', $updater->currentVersion());
-
-        if ($release === null) {
-            $this->components->info('The application is up to date.');
-
-            return self::SUCCESS;
+        foreach ($result['errors'] as $error) {
+            $this->components->error($error);
         }
 
-        $this->components->twoColumnDetail('Available version', $release->version());
-        $this->components->warn('An update is available. Run "php artisan updater:run" to install it.');
+        if ($result['release'] === null && $result['packages'] === []) {
+            $this->components->info('Everything is up to date.');
+        }
 
-        return self::SUCCESS;
+        return $result['errors'] === [] ? self::SUCCESS : self::FAILURE;
     }
 }
