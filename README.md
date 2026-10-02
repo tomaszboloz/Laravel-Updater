@@ -302,17 +302,6 @@ for example with a `backup:run` step before `migrate`.
 
 Report vulnerabilities privately as described in [SECURITY.md](SECURITY.md).
 
-## Package health
-
-The package is built to pass every automated check behind the **Package health** score in the
-Filament plugin directory: **100 / 100** (Security 100, Maintenance 100, Ecosystem 100).
-
-- **Security:** GitHub Actions pinned to commit SHAs, Dependabot for Composer and Actions with an
-  update cooldown, `composer audit` in CI, a [security policy](SECURITY.md) with private reporting.
-- **Maintenance:** active commits and releases, every release tagged from CI, no `composer.lock`
-  and no development files in the dist archive.
-- **Ecosystem:** current Laravel (12, 13), PHP (8.3 – 8.5), Symfony (7, 8) and Filament (4, 5).
-
 ## Testing
 
 ```bash
