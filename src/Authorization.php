@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace TomaszBoloz\LaravelUpdater;
 
-use BezhanSalleh\FilamentShield\FilamentShield;
+use BezhanSalleh\FilamentShield\Facades\FilamentShield;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Gate;
 use TomaszBoloz\LaravelUpdater\Filament\UpdaterPage;
@@ -30,11 +30,7 @@ final class Authorization
             return null;
         }
 
-        $shield = app('filament-shield');
-        $keys = $shield instanceof FilamentShield
-            ? $shield->getDefaultPermissionKeys(UpdaterPage::class, Config::string('filament-shield.pages.prefix', 'view'))
-            : [];
-        $key = array_key_first($keys);
+        $key = array_key_first(FilamentShield::getDefaultPermissionKeys(UpdaterPage::class, Config::string('filament-shield.pages.prefix', 'view')));
 
         return is_string($key) ? $key : null;
     }
