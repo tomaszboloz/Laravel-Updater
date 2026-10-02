@@ -8,6 +8,7 @@ use Illuminate\Process\PendingProcess;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Route;
+use Orchestra\Testbench\Attributes\DefineEnvironment;
 use TomaszBoloz\LaravelUpdater\Background;
 use TomaszBoloz\LaravelUpdater\CommandRunner;
 use TomaszBoloz\LaravelUpdater\Status;
@@ -23,6 +24,12 @@ final class BackgroundTest extends TestCase
         parent::defineEnvironment($app);
         $app['config']->set('app.key', 'base64:'.base64_encode(str_repeat('b', 32)));
         $app['config']->set('auth.providers.users.model', User::class);
+    }
+
+    protected function usePanelGuard($app): void
+    {
+        $app['config']->set('auth.guards.admin', ['driver' => 'session', 'provider' => 'users']);
+        $app['config']->set('updater.route_middleware', ['web', 'auth:admin']);
     }
 
     public function test_tasks_and_package_names_are_validated_before_anything_starts(): void
@@ -71,6 +78,16 @@ final class BackgroundTest extends TestCase
             ->assertOk()
             ->assertHeader('Cache-Control', 'no-store, private')
             ->assertJson(['state' => 'running', 'target' => 'application', 'step' => 'composer install', 'log' => ['$ composer install']]);
+    }
+
+    #[DefineEnvironment('usePanelGuard')]
+    public function test_the_status_endpoint_authenticates_with_the_configured_guard(): void
+    {
+        $user = new User(['name' => 'Admin', 'email' => 'admin@example.com', 'password' => 'x']);
+        Gate::define('updater.manage', static fn (User $admin): bool => $admin === $user);
+
+        $this->actingAs($user)->getJson(route('updater.status'))->assertUnauthorized();
+        $this->actingAs($user, 'admin')->getJson(route('updater.status'))->assertOk();
     }
 
     public function test_development_installs_skip_commands_that_cache_configuration(): void

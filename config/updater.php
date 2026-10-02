@@ -115,6 +115,9 @@ return [
     // Prefix of the progress endpoint polled by the admin page ("/updater/status").
     'route_prefix' => 'updater',
 
+    // Middleware of that endpoint; a panel with its own guard needs it here too, e.g. ['web', 'auth:admin'].
+    'route_middleware' => ['web', 'auth'],
+
     'queue' => [
         'connection' => env('UPDATER_QUEUE_CONNECTION'),
         'name' => env('UPDATER_QUEUE'),

@@ -230,6 +230,7 @@ Options marked **panel** are edited in **Updates → Settings**; config and `.en
 | `preserve` | `.env`, `storage`, `vendor`... | Paths the `archive` strategy never overwrites |
 | `runner` | `process` | `process` (detached `updater:work`) or `queue` (`RunTask` job) |
 | `route_prefix` | `updater` | Prefix of the progress endpoint polled by the page |
+| `route_middleware` | `['web', 'auth']` | Middleware of that endpoint; use the panel's guard, e.g. `auth:admin` |
 | `queue` | default connection | `connection`, `name` and `timeout` of the `RunTask` job |
 | `cache_store` | default store | Cache for GitHub API answers |
 
