@@ -14,18 +14,24 @@ concurrency:
 
 jobs:
   tests:
-    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }}
+    name: PHP ${{ matrix.php }} / Laravel ${{ matrix.laravel }} / Filament ${{ matrix.filament }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         php: ['8.3', '8.4', '8.5']
         laravel: ['12.*', '13.*']
+        filament: ['5.*']
         include:
           - laravel: '12.*'
             testbench: '10.*'
           - laravel: '13.*'
             testbench: '11.*'
+          # The panel supports Filament 4 too, which a plain update never installs.
+          - php: '8.3'
+            laravel: '12.*'
+            testbench: '10.*'
+            filament: '4.*'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,8 +45,13 @@ jobs:
           coverage: none
 
       - name: Install dependencies
+        env:
+          LARAVEL: ${{ matrix.laravel }}
+          TESTBENCH: ${{ matrix.testbench }}
+          FILAMENT: ${{ matrix.filament }}
         run: |
-          composer require "laravel/framework:${{ matrix.laravel }}" "orchestra/testbench:${{ matrix.testbench }}" --no-interaction --no-update
+          composer require "laravel/framework:$LARAVEL" "orchestra/testbench:$TESTBENCH" --no-interaction --no-update
+          composer require --dev "filament/filament:$FILAMENT" --no-interaction --no-update
           composer update --prefer-stable --prefer-dist --no-interaction --no-progress
 
       - name: Configure git for integration tests
