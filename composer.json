@@ -18,7 +18,8 @@
     "homepage": "https://github.com/tomaszboloz/Laravel-Updater",
     "support": {
         "issues": "https://github.com/tomaszboloz/Laravel-Updater/issues",
-        "source": "https://github.com/tomaszboloz/Laravel-Updater"
+        "source": "https://github.com/tomaszboloz/Laravel-Updater",
+        "security": "https://github.com/tomaszboloz/Laravel-Updater/security/policy"
     },
     "authors": [
         {
