@@ -41,6 +41,7 @@
         "symfony/process": "^7.2|^8.0"
     },
     "require-dev": {
+        "bezhansalleh/filament-shield": "^4.0",
         "filament/filament": "^4.0|^5.0",
         "larastan/larastan": "^3.4",
         "laravel/pint": "^1.20",
@@ -48,6 +49,7 @@
         "phpunit/phpunit": "^11.5|^12.0|^13.0"
     },
     "suggest": {
+        "bezhansalleh/filament-shield": "Grants access to the \"Updates\" page per role through Shield's role editor.",
         "ext-zip": "Required by the \"archive\" strategy (hosts without git).",
         "filament/filament": "Adds the \"Updates\" page to your Filament (v4/v5) admin panel."
     },

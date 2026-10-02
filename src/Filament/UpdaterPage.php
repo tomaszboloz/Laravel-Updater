@@ -9,10 +9,9 @@ use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Throwable;
+use TomaszBoloz\LaravelUpdater\Authorization;
 use TomaszBoloz\LaravelUpdater\Packages\PackageInventory;
 use TomaszBoloz\LaravelUpdater\Release;
 use TomaszBoloz\LaravelUpdater\Status;
@@ -32,9 +31,7 @@ final class UpdaterPage extends Page
     /** Filament re-checks this on mount and on every Livewire request, so actions are covered too. */
     public static function canAccess(): bool
     {
-        $ability = Config::get('updater.ability', 'updater.manage');
-
-        return is_string($ability) && Gate::allows($ability);
+        return Authorization::allows();
     }
 
     public static function getNavigationLabel(): string

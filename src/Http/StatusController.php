@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace TomaszBoloz\LaravelUpdater\Http;
 
 use Illuminate\Http\JsonResponse;
-use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Gate;
+use TomaszBoloz\LaravelUpdater\Authorization;
 use TomaszBoloz\LaravelUpdater\Status;
 use TomaszBoloz\LaravelUpdater\UpdateChecker;
 
@@ -18,8 +17,7 @@ final class StatusController
 {
     public function __invoke(Status $status, UpdateChecker $checker): JsonResponse
     {
-        $ability = Config::get('updater.ability', 'updater.manage');
-        abort_unless(is_string($ability) && Gate::allows($ability), 403);
+        abort_unless(Authorization::allows(), 403);
 
         $current = $status->get();
 

@@ -132,8 +132,14 @@ use Illuminate\Support\Facades\Gate;
 Gate::define('updater.manage', fn ($user) => $user->hasRole('super_admin'));
 ```
 
-With Filament Shield, the `super_admin` role already passes through its `Gate::before` callback.
 Change the ability name with the `updater.ability` config option.
+
+**With [Filament Shield](https://filamentphp.com/plugins/bezhansalleh-shield)** the gate is not needed: the
+Updates page appears in Shield's role editor (**Pages** tab) and its permission (`View:UpdaterPage` with
+Shield's default key format) decides who may open it, poll the progress and start updates. Run
+`php artisan shield:generate --all --panel=admin` once to create the permission, then grant it to roles. If Shield excludes the
+page (`filament-shield.pages.exclude`) or you set `updater.shield` to `false`, the gate above applies again.
+Without Shield installed nothing changes.
 
 ### Filament admin panel
 
@@ -216,6 +222,7 @@ Options marked **panel** are edited in **Updates → Settings**; config and `.en
 | `strategy` (panel) | `git` | `git` (checkout of the tag, with rollback) or `archive` (zipball, no rollback) |
 | `current_version` (panel) | `0.0.0` | Version before the first update; later stored in `storage/app/updater/version` |
 | `ability` | `updater.manage` | Gate ability for the admin page |
+| `shield` | `true` | Use the Filament Shield page permission instead of the ability (when Shield is installed) |
 | `check_cache_minutes` | `10` | How long the latest release and tags are cached |
 | `schedule` | `0 */6 * * *` | Cron expression of the automatic check, `null` turns it off |
 | `package_steps` | `composer update {packages}`, migrate, caches | Commands of a package update; `{packages}` is the package or nothing for all |

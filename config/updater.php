@@ -32,6 +32,9 @@ return [
     // Gate ability required to see the admin page and start updates. Define it in your app.
     'ability' => 'updater.manage',
 
+    // With Filament Shield installed, its page permission (e.g. "View:UpdaterPage") replaces the ability above.
+    'shield' => true,
+
     'check_cache_minutes' => 10,
 
     /*
