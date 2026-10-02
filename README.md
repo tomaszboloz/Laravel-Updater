@@ -262,8 +262,9 @@ updater refuses to run when tracked files have local changes, fetches only the r
 and keeps the previous commit as a restore point. If a step fails, it checks the previous commit out again.
 
 **`archive`.** For hosts without git. The release zipball is downloaded from the GitHub API, checked for
-unsafe paths and copied over the application, skipping the `preserve` paths. Files deleted in the
-release stay in place, and there is no automatic rollback, so keep backups.
+unsafe paths and copied over the application, skipping the `preserve` paths. Files a release no longer
+ships are deleted on the next update (from the first archive update on; other files are never touched).
+There is no automatic rollback, so keep backups.
 
 ## Events
 

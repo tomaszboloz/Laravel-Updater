@@ -99,6 +99,45 @@ final class SourcesTest extends TestCase
         $this->assertSame('old', file_get_contents($this->root.'/app.php'), 'Nothing is copied from an unsafe archive.');
     }
 
+    public function test_archive_deletes_files_the_next_release_no_longer_ships(): void
+    {
+        file_put_contents($this->root.'/custom.php', 'mine');
+        $this->fakeZipball(
+            ['shop-abc/app.php' => 'v1', 'shop-abc/legacy/old.php' => 'old', 'shop-abc/.env' => 'x'],
+            ['shop-def/app.php' => 'v2'],
+        );
+        $source = $this->archiveSource();
+
+        $source->apply(new Release('v1.0.0', 'name'));
+        $this->assertFileExists($this->root.'/legacy/old.php');
+
+        $source->apply(new Release('v2.0.0', 'name'));
+
+        $this->assertSame('v2', file_get_contents($this->root.'/app.php'));
+        $this->assertDirectoryDoesNotExist($this->root.'/legacy', 'Emptied directories are removed.');
+        $this->assertSame('mine', file_get_contents($this->root.'/custom.php'), 'Files no release shipped stay.');
+        $this->assertSame('APP_KEY=keep-me', file_get_contents($this->root.'/.env'));
+        $this->assertSame(['app.php'], json_decode((string) file_get_contents($this->root.'/storage/app/updater/archive-manifest.json')));
+    }
+
+    public function test_archive_ignores_unsafe_and_preserved_manifest_entries(): void
+    {
+        mkdir($this->root.'/storage/app/updater', 0777, true);
+        file_put_contents($this->root.'/storage/app/updater/archive-manifest.json', json_encode(['../outside.php', '.env', 'app.php', 42]));
+        file_put_contents(dirname($this->root).'/outside.php', 'outside');
+        $this->fakeZipball(['shop-abc/routes/web.php' => 'routes']);
+
+        try {
+            $this->archiveSource()->apply(new Release('v1.2.0', 'name'));
+
+            $this->assertFileExists(dirname($this->root).'/outside.php');
+            $this->assertFileExists($this->root.'/.env');
+            $this->assertFileDoesNotExist($this->root.'/app.php');
+        } finally {
+            @unlink(dirname($this->root).'/outside.php');
+        }
+    }
+
     private function archiveSource(): ArchiveSource
     {
         Config::set('updater.strategy', 'archive');
@@ -111,19 +150,25 @@ final class SourcesTest extends TestCase
         return $source;
     }
 
-    /** @param array<string, string> $entries */
-    private function fakeZipball(array $entries): void
+    /** @param array<string, string> ...$releases zip entries of each consecutive download */
+    private function fakeZipball(array ...$releases): void
     {
-        $path = $this->root.'/fixture.zip';
-        $zip = new ZipArchive;
-        $zip->open($path, ZipArchive::CREATE);
+        $sequence = Http::sequence();
 
-        foreach ($entries as $name => $contents) {
-            $zip->addFromString($name, $contents);
+        foreach ($releases as $entries) {
+            $path = $this->root.'/fixture.zip';
+            $zip = new ZipArchive;
+            $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+
+            foreach ($entries as $name => $contents) {
+                $zip->addFromString($name, $contents);
+            }
+
+            $zip->close();
+            $sequence->push((string) file_get_contents($path));
+            unlink($path);
         }
 
-        $zip->close();
-        Http::fake(['*/zipball/*' => Http::response((string) file_get_contents($path))]);
-        unlink($path);
+        Http::fake(['*/zipball/*' => $sequence]);
     }
 }

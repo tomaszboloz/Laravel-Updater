@@ -91,6 +91,7 @@ final class UpdaterServiceProvider extends PackageServiceProvider
                 $app->make(Filesystem::class),
                 $app->basePath(),
                 $app->storagePath('app/updater/work'),
+                $app->storagePath('app/updater/archive-manifest.json'),
                 $this->settings($app)->list('preserve'),
             ),
             default => throw UpdaterException::unknownStrategy($strategy),

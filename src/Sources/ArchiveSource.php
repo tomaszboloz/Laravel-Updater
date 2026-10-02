@@ -13,7 +13,8 @@ use ZipArchive;
 
 /**
  * Downloads the release zipball and copies it over the application (for hosts without git).
- * Files removed in the release are left in place and there is no automatic rollback: keep backups.
+ * A manifest of shipped files lets the next update delete files a release dropped.
+ * There is no automatic rollback: keep backups.
  */
 final readonly class ArchiveSource implements Source
 {
@@ -23,6 +24,7 @@ final readonly class ArchiveSource implements Source
         private Filesystem $files,
         private string $basePath,
         private string $workPath,
+        private string $manifestPath,
         private array $preserve = [],
     ) {}
 
@@ -43,7 +45,9 @@ final readonly class ArchiveSource implements Source
         try {
             $archive = $work.DIRECTORY_SEPARATOR.'release.zip';
             $this->github->downloadArchive($release, $archive);
-            $this->copy($this->extract($archive, $work.DIRECTORY_SEPARATOR.'src'));
+            $shipped = $this->copy($this->extract($archive, $work.DIRECTORY_SEPARATOR.'src'));
+            $this->prune($shipped);
+            $this->files->put($this->manifestPath, json_encode($shipped, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES));
         } finally {
             $this->files->deleteDirectory($work);
         }
@@ -66,10 +70,8 @@ final readonly class ArchiveSource implements Source
         try {
             for ($index = 0; $index < $zip->numFiles; $index++) {
                 $entry = (string) $zip->getNameIndex($index);
-                $segments = explode('/', $entry);
 
-                if ($entry === '' || str_starts_with($entry, '/') || str_contains($entry, '\\')
-                    || str_contains($entry, "\0") || in_array('..', $segments, true) || preg_match('/\A[A-Za-z]:/', $entry) === 1) {
+                if (self::isUnsafe($entry)) {
                     throw UpdaterException::unsafeArchive($entry);
                 }
             }
@@ -89,19 +91,72 @@ final readonly class ArchiveSource implements Source
         return $roots[0];
     }
 
-    private function copy(string $source): void
+    /** @return list<string> paths the release ships, relative to $basePath (preserved paths excluded) */
+    private function copy(string $source): array
     {
+        $shipped = [];
+
         foreach ($this->files->allFiles($source, true) as $file) {
             $relative = str_replace('\\', '/', $file->getRelativePathname());
 
-            if ($file->isLink() || $this->isPreserved($relative)) {
+            if ($this->isPreserved($relative)) {
+                continue;
+            }
+
+            $shipped[] = $relative;
+
+            if (! $file->isLink()) {
+                $target = $this->basePath.DIRECTORY_SEPARATOR.$relative;
+                $this->files->ensureDirectoryExists(dirname($target));
+                $this->files->copy($file->getPathname(), $target);
+            }
+        }
+
+        return $shipped;
+    }
+
+    /**
+     * Deletes files the previous archive update shipped that this release no longer contains.
+     * Without a manifest (first archive update) nothing is deleted: the owner of other files is unknown.
+     *
+     * @param  list<string>  $shipped
+     */
+    private function prune(array $shipped): void
+    {
+        if (! $this->files->isFile($this->manifestPath)) {
+            return;
+        }
+
+        $manifest = json_decode($this->files->get($this->manifestPath), true);
+        $previous = is_array($manifest) ? array_filter($manifest, is_string(...)) : [];
+
+        foreach (array_diff($previous, $shipped) as $relative) {
+            if (self::isUnsafe($relative) || $this->isPreserved($relative)) {
                 continue;
             }
 
             $target = $this->basePath.DIRECTORY_SEPARATOR.$relative;
-            $this->files->ensureDirectoryExists(dirname($target));
-            $this->files->copy($file->getPathname(), $target);
+
+            if (is_link($target) || $this->files->isFile($target)) {
+                $this->files->delete($target);
+                $this->removeEmptyDirectories(dirname($target));
+            }
         }
+    }
+
+    private function removeEmptyDirectories(string $directory): void
+    {
+        while (str_starts_with($directory, $this->basePath.DIRECTORY_SEPARATOR) && $this->files->isEmptyDirectory($directory)) {
+            $this->files->deleteDirectory($directory);
+            $directory = dirname($directory);
+        }
+    }
+
+    /** True for paths that could escape the application directory. */
+    private static function isUnsafe(string $path): bool
+    {
+        return $path === '' || str_starts_with($path, '/') || str_contains($path, '\\') || str_contains($path, "\0")
+            || in_array('..', explode('/', $path), true) || preg_match('/\A[A-Za-z]:/', $path) === 1;
     }
 
     private function isPreserved(string $relative): bool
