@@ -88,6 +88,24 @@ final class UpdaterTest extends TestCase
         Event::assertDispatched(UpdateFailed::class);
     }
 
+    public function test_a_failed_rollback_is_logged_and_the_original_error_is_kept(): void
+    {
+        $this->useSource(new FakeSource(failApply: true, failRestore: true));
+        $this->fakeProcesses();
+
+        try {
+            $this->app->make(Updater::class)->update();
+            $this->fail('The failing download must abort the update.');
+        } catch (RuntimeException $exception) {
+            $this->assertSame('download failed', $exception->getMessage());
+        }
+
+        $status = $this->app->make(Status::class)->get();
+        $this->assertContains('! restore failed', $status['log']);
+        $this->assertSame([Status::FAILED, 'download failed'], [$status['state'], $status['message']]);
+        $this->assertContains('php artisan up', $this->ran, 'The site comes back up even when the rollback fails.');
+    }
+
     public function test_sources_without_snapshots_skip_rollback(): void
     {
         $this->useSource(new FakeSource(snapshot: null, failApply: true));

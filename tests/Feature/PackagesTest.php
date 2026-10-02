@@ -138,6 +138,18 @@ final class PackagesTest extends TestCase
         Event::assertDispatched(PackagesUpdateFailed::class);
     }
 
+    public function test_the_packages_command_updates_and_reports_failures(): void
+    {
+        $this->fakeProcesses(fn (string $command) => $command === 'composer update acme/theme --with-dependencies --no-dev --no-interaction --prefer-dist --optimize-autoloader'
+            ? Process::result(errorOutput: 'conflict', exitCode: 1)
+            : Process::result());
+
+        $this->artisan('updater:packages acme/plugin')->expectsOutputToContain('acme/plugin updated.')->assertSuccessful();
+        $this->assertContains('php artisan updater:check', $this->ran, 'The follow-up check runs in a fresh process.');
+
+        $this->artisan('updater:packages acme/theme')->expectsOutputToContain('composer update acme/theme')->assertFailed();
+    }
+
     /** @param (\Closure(string): mixed)|null $result */
     private function fakeProcesses(?\Closure $result = null): void
     {

@@ -13,8 +13,10 @@ use TomaszBoloz\LaravelUpdater\Jobs\RunTask;
 use TomaszBoloz\LaravelUpdater\Sources\Source;
 use TomaszBoloz\LaravelUpdater\State\RunLock;
 use TomaszBoloz\LaravelUpdater\Status;
+use TomaszBoloz\LaravelUpdater\Tasks;
 use TomaszBoloz\LaravelUpdater\Tests\Fixtures\FakeSource;
 use TomaszBoloz\LaravelUpdater\Tests\TestCase;
+use TomaszBoloz\LaravelUpdater\UpdaterException;
 
 final class CommandsTest extends TestCase
 {
@@ -49,6 +51,11 @@ final class CommandsTest extends TestCase
         Process::fake();
 
         $this->artisan('updater:run')->expectsOutputToContain('Updated to 1.2.0.')->assertSuccessful();
+        $this->artisan('updater:run')->expectsOutputToContain('The application is up to date.')->assertSuccessful();
+
+        // Composer swapped vendor/ during the run, so the follow-up check boots the new code in a fresh process.
+        Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['php', 'artisan', 'updater:check']);
+        Process::assertNotRan(fn (PendingProcess $process): bool => in_array('outdated', (array) $process->command, true));
     }
 
     public function test_run_refuses_to_start_while_another_update_holds_the_lock(): void
@@ -106,5 +113,35 @@ final class CommandsTest extends TestCase
         Process::assertRan(fn (PendingProcess $process): bool => $process->command === ['php', 'artisan', 'updater:check']);
         $this->artisan('updater:work --help')->assertSuccessful();
         $this->artisan('updater:work rm')->assertExitCode(2);
+    }
+
+    public function test_a_failed_follow_up_check_is_logged_without_failing_the_update(): void
+    {
+        Process::fake(['*updater:check*' => Process::result(errorOutput: 'boom', exitCode: 1), '*' => Process::result()]);
+
+        $this->artisan('updater:work check')->assertSuccessful();
+        $this->artisan('updater:work application')->assertSuccessful();
+
+        $log = $this->app->make(Status::class)->get()['log'];
+        $this->assertSame(Status::SUCCEEDED, $this->app->make(Status::class)->get()['state']);
+        $this->assertContains('! Command "php artisan updater:check" failed (exit code 1).', $log);
+    }
+
+    public function test_the_queued_job_runs_its_task_once_per_task_and_package(): void
+    {
+        Process::fake(['*outdated*' => Process::result('{"installed": []}')]);
+
+        (new RunTask('check'))->handle($this->app->make(Tasks::class));
+
+        $this->assertSame('packages:acme/plugin', (new RunTask('packages', 'acme/plugin'))->uniqueId());
+        $this->assertSame('application:*', (new RunTask('application'))->uniqueId());
+        Process::assertRan(fn (PendingProcess $process): bool => in_array('outdated', (array) $process->command, true));
+    }
+
+    public function test_unknown_tasks_are_rejected(): void
+    {
+        $this->expectException(UpdaterException::class);
+
+        $this->app->make(Tasks::class)->perform('rm');
     }
 }

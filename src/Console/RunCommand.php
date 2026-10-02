@@ -9,7 +9,7 @@ use Illuminate\Console\ConfirmableTrait;
 use Throwable;
 use TomaszBoloz\LaravelUpdater\Background;
 use TomaszBoloz\LaravelUpdater\Status;
-use TomaszBoloz\LaravelUpdater\UpdateChecker;
+use TomaszBoloz\LaravelUpdater\Tasks;
 use TomaszBoloz\LaravelUpdater\Updater;
 
 final class RunCommand extends Command
@@ -22,7 +22,7 @@ final class RunCommand extends Command
 
     protected $description = 'Install the latest GitHub release: code, Composer, migrations, npm build and caches';
 
-    public function handle(Updater $updater, Status $status, UpdateChecker $checker, Background $background): int
+    public function handle(Updater $updater, Status $status, Tasks $tasks, Background $background): int
     {
         if (! $this->confirmToProceed()) {
             return self::FAILURE;
@@ -40,8 +40,11 @@ final class RunCommand extends Command
             return self::SUCCESS;
         }
 
+        $previous = $updater->currentVersion();
+
         try {
-            $release = $updater->update();
+            // Through Tasks: Composer swaps vendor/ mid-run, so the follow-up check needs a fresh process.
+            $tasks->perform('application');
         } catch (Throwable $exception) {
             $this->line(implode(PHP_EOL, $status->get()['log']));
             $this->components->error($exception->getMessage());
@@ -49,8 +52,8 @@ final class RunCommand extends Command
             return self::FAILURE;
         }
 
-        $checker->check();
-        $this->components->info($release === null ? 'The application is up to date.' : "Updated to {$release->version()}.");
+        $current = $updater->currentVersion();
+        $this->components->info($current === $previous ? 'The application is up to date.' : "Updated to {$current}.");
 
         return self::SUCCESS;
     }

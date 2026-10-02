@@ -8,9 +8,8 @@ use Illuminate\Console\Command;
 use Illuminate\Console\ConfirmableTrait;
 use Throwable;
 use TomaszBoloz\LaravelUpdater\Background;
-use TomaszBoloz\LaravelUpdater\Packages\PackageUpdater;
 use TomaszBoloz\LaravelUpdater\Status;
-use TomaszBoloz\LaravelUpdater\UpdateChecker;
+use TomaszBoloz\LaravelUpdater\Tasks;
 
 final class PackagesCommand extends Command
 {
@@ -23,7 +22,7 @@ final class PackagesCommand extends Command
 
     protected $description = 'Update one Composer package or all of them, then migrate and clear caches';
 
-    public function handle(PackageUpdater $updater, UpdateChecker $checker, Status $status, Background $background): int
+    public function handle(Tasks $tasks, Status $status, Background $background): int
     {
         if (! $this->confirmToProceed()) {
             return self::FAILURE;
@@ -40,7 +39,8 @@ final class PackagesCommand extends Command
         }
 
         try {
-            $updater->update($package);
+            // Through Tasks: Composer swaps vendor/ mid-run, so the follow-up check needs a fresh process.
+            $tasks->perform('packages', $package);
         } catch (Throwable $exception) {
             $this->line(implode(PHP_EOL, $status->get()['log']));
             $this->components->error($exception->getMessage());
@@ -48,7 +48,6 @@ final class PackagesCommand extends Command
             return self::FAILURE;
         }
 
-        $checker->check();
         $this->components->info(($package ?? 'All packages').' updated.');
 
         return self::SUCCESS;
